@@ -101,7 +101,7 @@ export default function SupportModal({
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: colors.border }]}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <View style={[styles.iconWrap, { backgroundColor: "rgba(99, 102, 241, 0.15)" }]}>
+              <View style={[styles.iconWrap, { backgroundColor: colors.text === "#f8fafc" ? "rgba(56, 130, 255, 0.15)" : "rgba(0, 102, 255, 0.08)" }]}>
                 <Feather name="life-buoy" size={20} color={colors.primary} />
               </View>
               <Text style={[styles.title, { color: colors.foreground }]}>

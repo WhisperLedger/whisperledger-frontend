@@ -18,7 +18,7 @@ import AddExpenseModal from "@/components/AddExpenseModal";
 import ExpenseItem from "@/components/ExpenseItem";
 import { Expense, useExpenses } from "@/context/ExpenseContext";
 import { useColors } from "@/hooks/useColors";
-import { appGradients, isDarkPalette, surfaceStyle } from "@/utils/designSystem";
+import { appGradients, isDarkPalette, surfaceStyle, bottomInset } from "@/utils/designSystem";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -109,7 +109,7 @@ export default function HistoryScreen() {
       width: 36,
       height: 36,
       borderRadius: 10,
-      backgroundColor: isDark ? "rgba(45, 212, 191, 0.10)" : "#E8F3EF",
+      backgroundColor: isDark ? "rgba(56, 130, 255, 0.12)" : "rgba(0, 102, 255, 0.08)",
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
@@ -129,7 +129,7 @@ export default function HistoryScreen() {
       marginTop: 4,
     },
     summaryChip: {
-      backgroundColor: isDark ? "rgba(45, 212, 191, 0.10)" : "#E8F3EF",
+      backgroundColor: isDark ? "rgba(56, 130, 255, 0.12)" : "rgba(0, 102, 255, 0.08)",
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: 12,
@@ -172,7 +172,7 @@ export default function HistoryScreen() {
       color: colors.foreground,
     },
     listContent: {
-      paddingBottom: Platform.OS === "web" ? 34 + 84 : insets.bottom + 84,
+      paddingBottom: bottomInset(insets.bottom),
     },
     emptyWrap: {
       alignItems: "center",
@@ -193,6 +193,8 @@ export default function HistoryScreen() {
       borderRadius: 28,
       alignItems: "center",
       justifyContent: "center",
+      backgroundColor: colors.primary,
+      overflow: "hidden",
       shadowColor: colors.primary,
       shadowOffset: { width: 0, height: 6 },
       shadowOpacity: 0.35,

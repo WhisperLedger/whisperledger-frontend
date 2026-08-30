@@ -1,76 +1,76 @@
 const colors = {
   light: {
-    text: "#17211F",
-    tint: "#0F766E",
+    text: "#0F172A",
+    tint: "#0066FF",
 
-    background: "#F7F4EF",
-    foreground: "#17211F",
+    background: "#F8FAFC",
+    foreground: "#0F172A",
 
     card: "#FFFFFF",
-    cardForeground: "#17211F",
+    cardForeground: "#0F172A",
 
-    primary: "#0F766E",
+    primary: "#0066FF",
     primaryForeground: "#FFFFFF",
 
-    secondary: "#E8F3EF",
-    secondaryForeground: "#134E4A",
+    secondary: "#F0F7FF",
+    secondaryForeground: "#1E3A8A",
 
-    muted: "#EFEAE2",
-    mutedForeground: "#68736F",
+    muted: "#F1F5F9",
+    mutedForeground: "#64748B",
 
-    accent: "#FFF4D9",
-    accentForeground: "#92400E",
+    accent: "#EFF6FF",
+    accentForeground: "#1E40AF",
 
     destructive: "#DC2626",
     destructiveForeground: "#FFFFFF",
 
-    border: "rgba(23, 33, 31, 0.10)",
-    input: "#F4EFE7",
+    border: "#E2E8F0",
+    input: "#F8FAFC",
 
-    success: "#0F766E",
-    successLight: "#CCFBF1",
-    warning: "#D97706",
-    warningLight: "#FDECC8",
+    success: "#10B981",
+    successLight: "#D1FAE5",
+    warning: "#F59E0B",
+    warningLight: "#FEF3C7",
 
     tabBar: "#FFFFFF",
-    headerBg: "#F7F4EF",
+    headerBg: "#F8FAFC",
   },
 
   dark: {
     text: "#f8fafc",
-    tint: "#5EEAD4",
+    tint: "#60A5FA",
 
-    background: "#080D0C",
-    foreground: "#F8FAF7",
+    background: "#080A10",
+    foreground: "#F8FAFC",
 
-    card: "#101816",
-    cardForeground: "#F8FAF7",
+    card: "#0E111F",
+    cardForeground: "#F8FAFC",
 
-    primary: "#2DD4BF",
-    primaryForeground: "#06211F",
+    primary: "#3882FF",
+    primaryForeground: "#FFFFFF",
 
-    secondary: "#172521",
-    secondaryForeground: "#D9FBEF",
+    secondary: "#161B30",
+    secondaryForeground: "#E5E7EB",
 
-    muted: "#17211F",
-    mutedForeground: "#9AA7A2",
+    muted: "#161B30",
+    mutedForeground: "#8A95A5",
 
-    accent: "rgba(245, 158, 11, 0.16)",
-    accentForeground: "#FDE68A",
+    accent: "rgba(56, 130, 255, 0.15)",
+    accentForeground: "#93C5FD",
 
     destructive: "#F87171",
     destructiveForeground: "#ffffff",
 
-    border: "rgba(248, 250, 247, 0.12)",
-    input: "#15201E",
+    border: "rgba(56, 130, 255, 0.15)",
+    input: "#161B30",
 
-    success: "#5EEAD4",
-    successLight: "rgba(45, 212, 191, 0.14)",
+    success: "#10B981",
+    successLight: "rgba(16, 185, 129, 0.14)",
     warning: "#FBBF24",
     warningLight: "rgba(251, 191, 36, 0.1)",
 
-    tabBar: "#0B1110",
-    headerBg: "#080D0C",
+    tabBar: "#080A10",
+    headerBg: "#080A10",
   },
 
   radius: 14,

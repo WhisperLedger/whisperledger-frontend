@@ -65,8 +65,8 @@ export function getReceivableStatusMeta(status: ReceivableStatus, expectedRefund
   if (status === "NCH_GRIEVANCE") {
     return {
       label: "NCH GRIEVANCE",
-      badgeColor: "rgba(168, 85, 247, 0.15)",
-      textColor: "#a855f7",
+      badgeColor: "rgba(37, 99, 235, 0.15)",
+      textColor: "#2563EB",
       iconName: "file-text",
       isOverdue: true,
     };
@@ -85,8 +85,8 @@ export function getReceivableStatusMeta(status: ReceivableStatus, expectedRefund
   if (status === "RETURN_REQUESTED") {
     return {
       label: "RETURN REQUESTED",
-      badgeColor: "rgba(99, 102, 241, 0.15)",
-      textColor: "#6366f1",
+      badgeColor: "rgba(0, 102, 255, 0.15)",
+      textColor: "#0066FF",
       iconName: "rotate-ccw",
       isOverdue: false,
     };

@@ -57,7 +57,7 @@ export interface Category {
 
 export const CATEGORIES: Category[] = [
   { id: "travel", label: "Travel", icon: "navigation", color: "#0EA5E9", lightColor: "#E0F2FE" },
-  { id: "groceries", label: "Groceries", icon: "shopping-bag", color: "#0F766E", lightColor: "#CCFBF1" },
+  { id: "groceries", label: "Groceries", icon: "shopping-bag", color: "#10b981", lightColor: "#d1fae5" },
   { id: "rent", label: "Rent", icon: "home", color: "#7C2D12", lightColor: "#FFEDD5" },
   { id: "food_outside", label: "Food Outside", icon: "coffee", color: "#f59e0b", lightColor: "#fef3c7" },
   { id: "transfer", label: "Transfer", icon: "send", color: "#BE123C", lightColor: "#FFE4E6" },

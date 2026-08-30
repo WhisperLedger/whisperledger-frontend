@@ -19,6 +19,7 @@ import { CATEGORY_LABELS } from "@/types/receivable";
 import { parseReceivableFromText, calculateDefaultSLA, todayISO } from "@/utils/receivablesParser";
 import { safeHaptics } from "@/utils/haptics";
 import { validateMerchantName, validateAmount } from "@/utils/validation";
+import { isDarkPalette } from "@/utils/designSystem";
 
 interface AddReceivableModalProps {
   visible: boolean;
@@ -26,7 +27,7 @@ interface AddReceivableModalProps {
 }
 
 const QUICK_PRESETS = [
-  { name: "Amazon Return", amount: "8499", cat: "ecommerce_return" as ReceivableCategory, note: "Amazon return picked up" },
+  { name: "Amazon Return", amount: "1299", cat: "ecommerce_return" as ReceivableCategory, note: "Item returned via pickup" },
   { name: "Swiggy Cancel", amount: "450", cat: "food_order" as ReceivableCategory, note: "Order cancelled refund pending" },
   { name: "MakeMyTrip Flight", amount: "4200", cat: "flight_travel" as ReceivableCategory, note: "Airline ticket cancellation" },
   { name: "UPI Reversal", amount: "1000", cat: "failed_upi" as ReceivableCategory, note: "Failed UPI payment pending reversal" },
@@ -35,6 +36,7 @@ const QUICK_PRESETS = [
 export default function AddReceivableModal({ visible, onClose }: AddReceivableModalProps) {
   const colors = useColors();
   const { addReceivable } = useReceivables();
+  const isDark = isDarkPalette(colors);
 
   const [merchant, setMerchant] = useState("");
   const [amount, setAmount] = useState("");
@@ -146,20 +148,20 @@ export default function AddReceivableModal({ visible, onClose }: AddReceivableMo
               {QUICK_PRESETS.map((p, i) => (
                 <TouchableOpacity
                   key={i}
-                  style={[styles.presetChip, { backgroundColor: colors.text === "#f8fafc" ? "rgba(99,102,241,0.12)" : "#EEF2FF" }]}
+                  style={[styles.presetChip, { backgroundColor: isDark ? "rgba(56, 130, 255, 0.12)" : "#F0F7FF", borderColor: colors.border }]}
                   onPress={() => applyPreset(p)}
                 >
-                  <Text style={styles.presetText}>{p.name} ₹{p.amount}</Text>
+                  <Text style={[styles.presetText, { color: colors.primary }]}>{p.name} ₹{p.amount}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
 
             {/* Smart Text Paste Toggle */}
             <TouchableOpacity
-              style={[styles.smartToggle, { backgroundColor: colors.text === "#f8fafc" ? "rgba(255,255,255,0.05)" : "#F1F5F9" }]}
+              style={[styles.smartToggle, { backgroundColor: isDark ? "rgba(248, 250, 252, 0.05)" : "rgba(15, 23, 42, 0.04)" }]}
               onPress={() => setShowSmartPaste((v) => !v)}
             >
-              <Feather name="zap" size={16} color="#6366F1" style={{ marginRight: 8 }} />
+              <Feather name="zap" size={16} color={colors.primary} style={{ marginRight: 8 }} />
               <Text style={[styles.smartToggleText, { color: colors.foreground }]}>
                 {showSmartPaste ? "Hide Text Auto-Extract" : "Paste Refund SMS / Email to Auto-Extract"}
               </Text>
@@ -177,7 +179,7 @@ export default function AddReceivableModal({ visible, onClose }: AddReceivableMo
                   value={rawText}
                   onChangeText={setRawText}
                 />
-                <TouchableOpacity style={styles.parseBtn} onPress={handleSmartParse}>
+                <TouchableOpacity style={[styles.parseBtn, { backgroundColor: colors.primary }]} onPress={handleSmartParse}>
                   <Feather name="cpu" size={14} color="#fff" style={{ marginRight: 6 }} />
                   <Text style={styles.parseBtnText}>Auto-Extract Details</Text>
                 </TouchableOpacity>
@@ -226,8 +228,8 @@ export default function AddReceivableModal({ visible, onClose }: AddReceivableMo
                   style={[
                     styles.catChip,
                     {
-                      backgroundColor: category === cat ? "#6366f1" : colors.background,
-                      borderColor: category === cat ? "#6366f1" : colors.border,
+                      backgroundColor: category === cat ? colors.primary : colors.background,
+                      borderColor: category === cat ? colors.primary : colors.border,
                     },
                   ]}
                   onPress={() => setCategory(cat)}
@@ -244,7 +246,10 @@ export default function AddReceivableModal({ visible, onClose }: AddReceivableMo
           <TouchableOpacity
             style={[
               styles.saveBtn,
-              { opacity: !merchant.trim() || !amount.trim() || parseFloat(amount) <= 0 ? 0.4 : 1 },
+              {
+                backgroundColor: colors.primary,
+                opacity: !merchant.trim() || !amount.trim() || parseFloat(amount) <= 0 ? 0.4 : 1,
+              },
             ]}
             disabled={!merchant.trim() || !amount.trim() || parseFloat(amount) <= 0}
             activeOpacity={0.85}
@@ -306,12 +311,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginRight: 8,
     borderWidth: 1,
-    borderColor: "rgba(99,102,241,0.25)",
+    borderColor: "rgba(15,118,110,0.25)",
   },
   presetText: {
     fontSize: 13,
     fontFamily: "Inter_600SemiBold",
-    color: "#6366f1",
+    color: "#0066FF",
   },
   smartToggle: {
     flexDirection: "row",
@@ -338,7 +343,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
   },
   parseBtn: {
-    backgroundColor: "#6366f1",
+    backgroundColor: "#0066FF",
     borderRadius: 10,
     paddingVertical: 10,
     flexDirection: "row",
@@ -381,8 +386,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
   },
   saveBtn: {
-    backgroundColor: "#10b981",
-    borderRadius: 16,
+    borderRadius: 14,
     paddingVertical: 16,
     flexDirection: "row",
     alignItems: "center",

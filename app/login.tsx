@@ -23,7 +23,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
+import { isDarkPalette, surfaceStyle } from "@/utils/designSystem";
 import { validateEmail } from "@/utils/validation";
+import FormattedErrorMessage from "@/components/FormattedErrorMessage";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -57,7 +59,7 @@ const ONBOARDING_SLIDES: OnboardingSlide[] = [
     subtitle: "Beautiful Ledger Details",
     desc: "Export credit-card-style PDF statements and view color-coded category shares with a single tap.",
     icon: "bar-chart-2",
-    gradient: ["#6366F1", "#4338CA"],
+    gradient: ["#0066FF", "#0052CC"],
   },
   {
     title: "Direct Support",
@@ -116,6 +118,7 @@ export default function LoginScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { login, loginWithGoogle, isLoading, forgotPassword } = useAuth();
+  const isDark = isDarkPalette(colors);
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -433,16 +436,8 @@ export default function LoginScreen() {
       marginBottom: 32,
     },
     card: {
-      backgroundColor: colors.card,
-      borderRadius: 24,
+      ...surfaceStyle(colors),
       padding: 24,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 12 },
-      shadowOpacity: 0.15,
-      shadowRadius: 16,
-      elevation: 8,
-      borderWidth: colors.text === "#f8fafc" ? 1 : 0,
-      borderColor: colors.border,
     },
     label: {
       fontSize: 12,
@@ -456,9 +451,9 @@ export default function LoginScreen() {
     inputWrap: {
       flexDirection: "row",
       alignItems: "center",
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.04)" : colors.muted,
+      backgroundColor: colors.input,
       borderRadius: 12,
-      borderWidth: 1.5,
+      borderWidth: 1,
       borderColor: colors.border,
       paddingHorizontal: 14,
     },
@@ -471,7 +466,7 @@ export default function LoginScreen() {
     },
     eyeBtn: { padding: 4 },
     errorBox: {
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(239, 68, 68, 0.15)" : "#fee2e2",
+      backgroundColor: isDark ? "rgba(239, 68, 68, 0.15)" : "#fee2e2",
       borderRadius: 10,
       padding: 12,
       marginTop: 16,
@@ -480,7 +475,7 @@ export default function LoginScreen() {
       gap: 8,
     },
     errorText: {
-      color: colors.text === "#f8fafc" ? "#f87171" : "#dc2626",
+      color: isDark ? "#f87171" : "#dc2626",
       fontSize: 13,
       fontFamily: "Inter_500Medium",
       flex: 1,
@@ -663,7 +658,7 @@ export default function LoginScreen() {
       paddingVertical: 4,
     },
     forgotBtnText: {
-      color: "#6366f1",
+      color: "#0066FF",
       fontSize: 14,
       fontFamily: "Inter_500Medium",
     },
@@ -711,7 +706,7 @@ export default function LoginScreen() {
     modalInputWrap: {
       flexDirection: "row",
       alignItems: "center",
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.04)" : colors.muted,
+      backgroundColor: colors.text === "#f8fafc" ? "rgba(56, 130, 255, 0.06)" : colors.muted,
       borderWidth: 1.5,
       borderColor: colors.border,
       borderRadius: 16,
@@ -768,25 +763,24 @@ export default function LoginScreen() {
     },
   });
 
-  const isDark = colors.text === "#f8fafc";
   const slide = ONBOARDING_SLIDES[currentSlide];
 
   const getSlideGradient = (idx: number, dark: boolean): [string, string] => {
     if (dark) {
       switch (idx) {
-        case 0: return ["#08110F", "#12352F"];
-        case 1: return ["#102A24", "#164E43"];
-        case 2: return ["#2F2418", "#5B3412"];
-        case 3: return ["#0B2530", "#0E7490"];
-        default: return ["#08110F", "#12352F"];
+        case 0: return ["#080A10", "#0E1830"];
+        case 1: return ["#0B1224", "#172554"];
+        case 2: return ["#0A1733", "#1D4ED8"];
+        case 3: return ["#082F49", "#075985"];
+        default: return ["#080A10", "#0E1830"];
       }
     } else {
       switch (idx) {
-        case 0: return ["#F7F4EF", "#EFE8DD"];
-        case 1: return ["#E8F3EF", "#FFFFFF"];
-        case 2: return ["#FFF4D9", "#F7F4EF"];
-        case 3: return ["#E0F2FE", "#E8F3EF"];
-        default: return ["#F7F4EF", "#EFE8DD"];
+        case 0: return ["#F8FAFC", "#F1F5F9"];
+        case 1: return ["#EFF6FF", "#DBEAFE"];
+        case 2: return ["#F0F7FF", "#E0EEFF"];
+        case 3: return ["#ECFEFF", "#CFFAFE"];
+        default: return ["#F8FAFC", "#F1F5F9"];
       }
     }
   };
@@ -839,15 +833,15 @@ export default function LoginScreen() {
                   styles.iconOuter, 
                   { 
                     transform: [{ scale: iconScale }],
-                    backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(15, 118, 110, 0.10)",
-                    borderColor: isDark ? "rgba(255,255,255,0.15)" : "rgba(15, 118, 110, 0.18)",
+                    backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0, 102, 255, 0.10)",
+                    borderColor: isDark ? "rgba(255,255,255,0.15)" : "rgba(0, 102, 255, 0.18)",
                     shadowColor: isDark ? "#000" : colors.primary,
                   }
                 ]}
               >
                 <Feather name={slide.icon} size={64} color={isDark ? "#fff" : colors.primary} />
               </Animated.View>
-              <Text style={[styles.slideSub, { color: isDark ? "#5EEAD4" : colors.primary }]}>{slide.subtitle}</Text>
+              <Text style={[styles.slideSub, { color: isDark ? "#60A5FA" : colors.primary }]}>{slide.subtitle}</Text>
               <Text style={[styles.slideTitle, { color: isDark ? "#fff" : colors.foreground }]}>{slide.title}</Text>
               <Text style={[styles.slideDesc, { color: isDark ? "rgba(255,255,255,0.75)" : colors.mutedForeground }]}>{slide.desc}</Text>
             </Animated.View>
@@ -873,7 +867,7 @@ export default function LoginScreen() {
               <Animated.View style={[styles.actionBtn, { transform: [{ scale: pulseAnim }] }]}>
                 <TouchableOpacity onPress={handleNextSlide} activeOpacity={0.95}>
                   <LinearGradient
-                    colors={currentSlide === ONBOARDING_SLIDES.length - 1 ? ["#0F766E", "#115E59"] : ["#F59E0B", "#F97316"]}
+                    colors={["#0066FF", "#0052CC"]}
                     style={styles.actionBtnGrad}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
@@ -890,7 +884,7 @@ export default function LoginScreen() {
       )}
 
       {/* Main Login Screen View */}
-      <LinearGradient colors={colors.text === "#f8fafc" ? ["#080D0C", "#0F1B18"] : ["#F7F4EF", "#EFE8DD"]} style={styles.gradient}>
+      <LinearGradient colors={colors.text === "#f8fafc" ? ["#080A10", "#0E111F"] : ["#F8FAFC", "#F0F7FF"]} style={styles.gradient}>
         {/* Glowing glassmorphism drifting cosmic bubbles */}
         <Animated.View
           style={[
@@ -899,7 +893,7 @@ export default function LoginScreen() {
               width: 200,
               height: 200,
               borderRadius: 100,
-              backgroundColor: colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.12)" : "rgba(99, 102, 241, 0.08)",
+              backgroundColor: colors.text === "#f8fafc" ? "rgba(56, 130, 255, 0.12)" : "rgba(0, 102, 255, 0.08)",
               transform: [{ translateX: bubble1X }, { translateY: bubble1Y }],
             },
           ]}
@@ -911,7 +905,7 @@ export default function LoginScreen() {
               width: 280,
               height: 280,
               borderRadius: 140,
-              backgroundColor: colors.text === "#f8fafc" ? "rgba(236, 72, 153, 0.06)" : "rgba(236, 72, 153, 0.04)",
+              backgroundColor: colors.text === "#f8fafc" ? "rgba(14, 165, 233, 0.08)" : "rgba(14, 165, 233, 0.05)",
               transform: [{ translateX: bubble2X }, { translateY: bubble2Y }],
             },
           ]}
@@ -1051,10 +1045,7 @@ export default function LoginScreen() {
                 </TouchableOpacity>
 
                 {!!error && (
-                  <View style={styles.errorBox}>
-                    <Feather name="alert-circle" size={14} color="#dc2626" />
-                    <Text style={styles.errorText}>{error}</Text>
-                  </View>
+                  <FormattedErrorMessage message={error} onDismiss={() => setError("")} />
                 )}
 
                 <TouchableOpacity
@@ -1146,10 +1137,7 @@ export default function LoginScreen() {
                     </Text>
 
                     {!!forgotError && (
-                      <View style={styles.modalErrorBox}>
-                        <Feather name="alert-circle" size={16} color="#ef4444" />
-                        <Text style={styles.modalErrorText}>{forgotError}</Text>
-                      </View>
+                      <FormattedErrorMessage message={forgotError} onDismiss={() => setForgotError("")} />
                     )}
 
                     <View style={styles.modalInputWrap}>
@@ -1174,7 +1162,7 @@ export default function LoginScreen() {
                       activeOpacity={0.85}
                     >
                       <LinearGradient
-                        colors={["#0F766E", "#115E59"]}
+                        colors={["#0066FF", "#0052CC"]}
                         style={styles.modalSubmitBtnGrad}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 0 }}

@@ -161,20 +161,20 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
           {/* Nav Tabs */}
           <View style={[styles.tabBar, { backgroundColor: colors.background }]}>
             <TouchableOpacity
-              style={[styles.tab, activeTab === "escalation" && styles.activeTab]}
+              style={[styles.tab, activeTab === "escalation" && styles.activeTab, activeTab === "escalation" && { backgroundColor: colors.card }]}
               onPress={() => setActiveTab("escalation")}
             >
-              <Feather name="shield" size={14} color={activeTab === "escalation" ? "#6366f1" : colors.mutedForeground} />
-              <Text style={[styles.tabText, { color: activeTab === "escalation" ? "#6366f1" : colors.mutedForeground }]}>
+              <Feather name="shield" size={14} color={activeTab === "escalation" ? colors.primary : colors.mutedForeground} />
+              <Text style={[styles.tabText, { color: activeTab === "escalation" ? colors.primary : colors.mutedForeground }]}>
                 Escalation Engine
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.tab, activeTab === "timeline" && styles.activeTab]}
+              style={[styles.tab, activeTab === "timeline" && styles.activeTab, activeTab === "timeline" && { backgroundColor: colors.card }]}
               onPress={() => setActiveTab("timeline")}
             >
-              <Feather name="clock" size={14} color={activeTab === "timeline" ? "#6366f1" : colors.mutedForeground} />
-              <Text style={[styles.tabText, { color: activeTab === "timeline" ? "#6366f1" : colors.mutedForeground }]}>
+              <Feather name="clock" size={14} color={activeTab === "timeline" ? colors.primary : colors.mutedForeground} />
+              <Text style={[styles.tabText, { color: activeTab === "timeline" ? colors.primary : colors.mutedForeground }]}>
                 Case Timeline & Logs
               </Text>
             </TouchableOpacity>
@@ -187,7 +187,7 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
                 <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Escalation Ladder</Text>
                 <View style={styles.levelRow}>
                   <TouchableOpacity
-                    style={[styles.levelChip, escalationLevel === 1 && styles.levelChipActive]}
+                    style={[styles.levelChip, { borderColor: colors.border }, escalationLevel === 1 && { backgroundColor: colors.primary, borderColor: colors.primary }]}
                     onPress={() => setEscalationLevel(1)}
                   >
                     <Text style={[styles.levelChipText, escalationLevel === 1 && styles.levelChipTextActive]}>
@@ -195,7 +195,7 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.levelChip, escalationLevel === 2 && styles.levelChipActive]}
+                    style={[styles.levelChip, { borderColor: colors.border }, escalationLevel === 2 && { backgroundColor: colors.primary, borderColor: colors.primary }]}
                     onPress={() => setEscalationLevel(2)}
                   >
                     <Text style={[styles.levelChipText, escalationLevel === 2 && styles.levelChipTextActive]}>
@@ -203,7 +203,7 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.levelChip, escalationLevel === 3 && styles.levelChipActive]}
+                    style={[styles.levelChip, { borderColor: colors.border }, escalationLevel === 3 && { backgroundColor: colors.primary, borderColor: colors.primary }]}
                     onPress={() => setEscalationLevel(3)}
                   >
                     <Text style={[styles.levelChipText, escalationLevel === 3 && styles.levelChipTextActive]}>
@@ -214,10 +214,10 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
 
                 {/* Draft Card */}
                 <View style={[styles.draftBox, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                  <Text style={styles.draftTitle}>{escalationDraft.title}</Text>
+                  <Text style={[styles.draftTitle, { color: colors.primary }]}>{escalationDraft.title}</Text>
                   <Text style={[styles.draftBody, { color: colors.foreground }]}>{escalationDraft.body}</Text>
                   <TouchableOpacity
-                    style={styles.copyBtn}
+                    style={[styles.copyBtn, { backgroundColor: colors.primary }]}
                     onPress={() => handleCopyText(escalationDraft.body, escalationDraft.title)}
                   >
                     <Feather name="copy" size={14} color="#fff" style={{ marginRight: 6 }} />
@@ -227,10 +227,10 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
 
                 {/* Evidence Dossier Card */}
                 <View style={[styles.evidenceBox, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                  <Text style={styles.evidenceTitle}>Assembled Evidence Dossier</Text>
+                  <Text style={[styles.evidenceTitle, { color: colors.primary }]}>Assembled Evidence Dossier</Text>
                   <Text style={[styles.evidenceBody, { color: colors.mutedForeground }]}>{evidenceSummary}</Text>
                   <TouchableOpacity
-                    style={styles.copyOutlineBtn}
+                    style={[styles.copyOutlineBtn, { borderColor: colors.border }]}
                     onPress={() => handleCopyText(evidenceSummary, "Evidence Dossier")}
                   >
                     <Feather name="file-text" size={14} color={colors.primary} style={{ marginRight: 6 }} />
@@ -259,7 +259,7 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
                       value={newWaitHours}
                       onChangeText={setNewWaitHours}
                     />
-                    <TouchableOpacity style={styles.logSaveBtn} onPress={handleAddSupportResponse}>
+                    <TouchableOpacity style={[styles.logSaveBtn, { backgroundColor: colors.primary }]} onPress={handleAddSupportResponse}>
                       <Text style={styles.logSaveText}>Record Log</Text>
                     </TouchableOpacity>
                   </View>
@@ -270,7 +270,7 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
                 {receivable.history && receivable.history.length > 0 ? (
                   receivable.history.map((h, idx) => (
                     <View key={h.id || idx} style={styles.historyItem}>
-                      <View style={styles.historyDot} />
+                      <View style={[styles.historyDot, { backgroundColor: colors.primary }]} />
                       <View style={{ flex: 1, marginLeft: 10 }}>
                         <Text style={[styles.historyStatus, { color: colors.foreground }]}>
                           [{h.status}] {h.actor ? `(${h.actor.toUpperCase()})` : ""}
@@ -341,7 +341,7 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "800",
     fontFamily: "Inter_700Bold",
-    color: "#6366f1",
+    color: "#0066FF",
     marginVertical: 4,
   },
   promisedText: {
@@ -431,8 +431,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   levelChipActive: {
-    backgroundColor: "#6366f1",
-    borderColor: "#6366f1",
+    backgroundColor: "#0066FF",
+    borderColor: "#0066FF",
   },
   levelChipText: {
     fontSize: 11,
@@ -452,7 +452,7 @@ const styles = StyleSheet.create({
   draftTitle: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#6366f1",
+    color: "#0066FF",
     marginBottom: 6,
     fontFamily: "Inter_700Bold",
   },
@@ -462,7 +462,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
   },
   copyBtn: {
-    backgroundColor: "#6366f1",
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
@@ -486,7 +485,6 @@ const styles = StyleSheet.create({
   evidenceTitle: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#0f766e",
     marginBottom: 6,
     fontFamily: "Inter_700Bold",
   },
@@ -497,7 +495,6 @@ const styles = StyleSheet.create({
   },
   copyOutlineBtn: {
     borderWidth: 1,
-    borderColor: "rgba(99, 102, 241, 0.3)",
     paddingVertical: 8,
     borderRadius: 8,
     flexDirection: "row",
@@ -529,7 +526,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
   },
   logSaveBtn: {
-    backgroundColor: "#f59e0b",
     paddingHorizontal: 14,
     borderRadius: 8,
     alignItems: "center",
@@ -551,7 +547,6 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#6366f1",
     marginTop: 4,
   },
   historyStatus: {

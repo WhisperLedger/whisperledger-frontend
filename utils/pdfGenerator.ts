@@ -184,7 +184,7 @@ export async function generateAndSharePDF(
       const cat = CATEGORIES.find((c) => c.id === e.categoryId)?.label || "Other";
       const note = (e.note || "Expense").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       const stripe = idx % 2 === 0 ? "#f8fafc" : "#ffffff";
-      return `<tr style="background:${stripe}"><td style="padding:10px 12px;border-bottom:1px solid #E5E1D8">${idx + 1}</td><td style="padding:10px 12px;border-bottom:1px solid #E5E1D8;white-space:nowrap">${e.date}</td><td style="padding:10px 12px;border-bottom:1px solid #E5E1D8">${note}</td><td style="padding:10px 12px;border-bottom:1px solid #E5E1D8">${cat}</td><td style="padding:10px 12px;border-bottom:1px solid #E5E1D8;text-align:center">${(e.paymentMode || "—").toUpperCase()}</td><td style="padding:10px 12px;border-bottom:1px solid #E5E1D8;text-align:right;font-weight:700;color:#17211F">₹${Number(e.amount || 0).toLocaleString("en-IN")}</td></tr>`;
+      return `<tr style="background:${stripe}"><td style="padding:10px 12px;border-bottom:1px solid #E2E8F0">${idx + 1}</td><td style="padding:10px 12px;border-bottom:1px solid #E2E8F0;white-space:nowrap">${e.date}</td><td style="padding:10px 12px;border-bottom:1px solid #E2E8F0">${note}</td><td style="padding:10px 12px;border-bottom:1px solid #E2E8F0">${cat}</td><td style="padding:10px 12px;border-bottom:1px solid #E2E8F0;text-align:center">${(e.paymentMode || "—").toUpperCase()}</td><td style="padding:10px 12px;border-bottom:1px solid #E2E8F0;text-align:right;font-weight:700;color:#0F172A">₹${Number(e.amount || 0).toLocaleString("en-IN")}</td></tr>`;
     }).join("");
 
     const catRows = sortedCats
@@ -193,7 +193,7 @@ export async function generateAndSharePDF(
       .map((cat, idx) => {
         const pct = totalSpend > 0 ? Math.round(((catTotals[cat.id] || 0) / totalSpend) * 100) : 0;
         const stripe = idx % 2 === 0 ? "#f8fafc" : "#ffffff";
-        return `<tr style="background:${stripe}"><td style="padding:9px 12px;border-bottom:1px solid #E5E1D8">${cat.label}</td><td style="padding:9px 12px;border-bottom:1px solid #E5E1D8;text-align:right;font-weight:700">₹${Number(catTotals[cat.id] || 0).toLocaleString("en-IN")}</td><td style="padding:9px 12px;border-bottom:1px solid #E5E1D8;text-align:center;color:#68736F">${pct}%</td></tr>`;
+        return `<tr style="background:${stripe}"><td style="padding:9px 12px;border-bottom:1px solid #E2E8F0">${cat.label}</td><td style="padding:9px 12px;border-bottom:1px solid #E2E8F0;text-align:right;font-weight:700">₹${Number(catTotals[cat.id] || 0).toLocaleString("en-IN")}</td><td style="padding:9px 12px;border-bottom:1px solid #E2E8F0;text-align:center;color:#64748B">${pct}%</td></tr>`;
       }).join("");
 
     const topCat = sortedCats.sort((a, b) => (catTotals[b.id] || 0) - (catTotals[a.id] || 0))[0];
@@ -203,30 +203,30 @@ export async function generateAndSharePDF(
     const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Helvetica Neue',Arial,sans-serif;background:#F7F4EF;color:#17211F;padding:0}
+  body{font-family:'Helvetica Neue',Arial,sans-serif;background:#F8FAFC;color:#0F172A;padding:0}
   .page{max-width:800px;margin:0 auto;background:#fff}
-  .header-band{background:#0F766E;padding:36px 40px 28px;color:#fff}
+  .header-band{background:#0066FF;padding:36px 40px 28px;color:#fff}
   .bank-name{font-size:11px;letter-spacing:3px;text-transform:uppercase;opacity:.7;margin-bottom:8px}
   .doc-title{font-size:26px;font-weight:700;letter-spacing:-.5px}
   .doc-subtitle{font-size:13px;opacity:.75;margin-top:4px}
   .header-meta{display:flex;justify-content:space-between;align-items:flex-end;margin-top:24px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.2)}
   .meta-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;opacity:.6;margin-bottom:4px}
   .meta-val{font-size:14px;font-weight:600}
-  .summary-bar{display:flex;background:#17211F;padding:0}
+  .summary-bar{display:flex;background:#0F172A;padding:0}
   .sum-cell{flex:1;padding:20px 24px;border-right:1px solid rgba(255,255,255,0.08)}
   .sum-cell:last-child{border-right:none}
-  .sum-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#9AA7A2;margin-bottom:6px}
+  .sum-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#94A3B8;margin-bottom:6px}
   .sum-val{font-size:20px;font-weight:700;color:#fff}
-  .sum-note{font-size:10px;color:#68736F;margin-top:2px}
+  .sum-note{font-size:10px;color:#64748B;margin-top:2px}
   .section{padding:28px 40px}
-  .section-title{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#68736F;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #E5E1D8}
+  .section-title{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#64748B;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #E2E8F0}
   table{width:100%;border-collapse:collapse;font-size:12.5px}
-  thead tr{background:#0F766E;color:#fff}
+  thead tr{background:#0066FF;color:#fff}
   thead th{padding:10px 12px;text-align:left;font-weight:600;font-size:10px;letter-spacing:.5px;text-transform:uppercase}
   thead th:last-child{text-align:right}
-  .footer{background:#17211F;padding:20px 40px;display:flex;justify-content:space-between;align-items:center}
+  .footer{background:#0F172A;padding:20px 40px;display:flex;justify-content:space-between;align-items:center}
   .footer-brand{color:#fff;font-size:13px;font-weight:700;letter-spacing:1px}
-  .footer-note{color:#68736F;font-size:10px;text-align:right}
+  .footer-note{color:#94A3B8;font-size:10px;text-align:right}
 </style></head><body>
 <div class="page">
   <div class="header-band">
@@ -247,13 +247,13 @@ export async function generateAndSharePDF(
   <div class="section">
     <div class="section-title">Category Breakdown</div>
     <table><thead><tr><th>Category</th><th style="text-align:right">Amount</th><th style="text-align:center">Share</th></tr></thead>
-    <tbody>${catRows || "<tr><td colspan='3' style='padding:12px;text-align:center;color:#9AA7A2'>No data</td></tr>"}</tbody></table>
+    <tbody>${catRows || "<tr><td colspan='3' style='padding:12px;text-align:center;color:#94A3B8'>No data</td></tr>"}</tbody></table>
   </div>
   <div class="section" style="padding-top:0">
     <div class="section-title">Transaction Details</div>
     <table><thead><tr><th>#</th><th>Date</th><th>Description</th><th>Category</th><th style="text-align:center">Mode</th><th style="text-align:right">Amount</th></tr></thead>
     <tbody>${rows}</tbody>
-    <tfoot><tr style="background:#E8F3EF"><td colspan="5" style="padding:10px 12px;font-weight:700;font-size:13px">TOTAL</td><td style="padding:10px 12px;text-align:right;font-weight:700;font-size:14px;color:#0F766E">₹${Number(totalSpend || 0).toLocaleString("en-IN")}</td></tr></tfoot></table>
+    <tfoot><tr style="background:#F0F7FF"><td colspan="5" style="padding:10px 12px;font-weight:700;font-size:13px">TOTAL</td><td style="padding:10px 12px;text-align:right;font-weight:700;font-size:14px;color:#0066FF">₹${Number(totalSpend || 0).toLocaleString("en-IN")}</td></tr></tfoot></table>
   </div>
   <div class="footer">
     <div class="footer-brand">WhisperLedger</div>

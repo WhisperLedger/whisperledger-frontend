@@ -74,7 +74,7 @@ export default function ExpenseItem({ expense, onEdit }: Props) {
       borderRadius: 14,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: isDark ? `${cat.color}22` : cat.lightColor,
+      backgroundColor: isDark ? `${cat.color}22` : `${cat.color}15`,
     },
     info: {
       flex: 1,
@@ -109,7 +109,7 @@ export default function ExpenseItem({ expense, onEdit }: Props) {
       flexDirection: "row",
       alignItems: "center",
       gap: 4,
-      backgroundColor: isDark ? "rgba(45, 212, 191, 0.12)" : "#E8F3EF",
+      backgroundColor: isDark ? "rgba(56, 130, 255, 0.12)" : "#F0F7FF",
       paddingHorizontal: 10,
       paddingVertical: 5,
       borderRadius: 8,
@@ -134,29 +134,29 @@ export default function ExpenseItem({ expense, onEdit }: Props) {
     if (!expense.paymentMode || expense.paymentMode === "none") return null;
 
     let icon: any = "credit-card";
-    let bg = "rgba(99, 102, 241, 0.12)";
-    let fg = "#a5b4fc";
+    let bg = isDark ? "rgba(56, 130, 255, 0.15)" : "rgba(0, 102, 255, 0.08)";
+    let fg = colors.primary;
     let label = expense.paymentMode.toUpperCase();
 
     if (expense.paymentMode === "upi") {
       icon = "zap";
-      bg = "rgba(6, 182, 212, 0.15)";
-      fg = "#22d3ee";
+      bg = isDark ? "rgba(14, 165, 233, 0.15)" : "rgba(14, 165, 233, 0.12)";
+      fg = isDark ? "#38BDF8" : "#0369A1";
       label = "UPI";
     } else if (expense.paymentMode === "card") {
       icon = "credit-card";
-      bg = "rgba(249, 115, 22, 0.15)";
-      fg = "#fdba74";
+      bg = isDark ? "rgba(249, 115, 22, 0.15)" : "rgba(249, 115, 22, 0.12)";
+      fg = isDark ? "#FB923C" : "#C2410C";
       label = "CARD";
     } else if (expense.paymentMode === "cash") {
       icon = "dollar-sign";
-      bg = "rgba(16, 185, 129, 0.15)";
-      fg = "#34d399";
+      bg = isDark ? "rgba(16, 185, 129, 0.15)" : "rgba(16, 185, 129, 0.12)";
+      fg = isDark ? "#34D399" : "#047857";
       label = "CASH";
     } else if (expense.paymentMode === "netbanking") {
       icon = "briefcase";
-      bg = "rgba(99, 102, 241, 0.15)";
-      fg = "#c7d2fe";
+      bg = isDark ? "rgba(56, 130, 255, 0.15)" : "rgba(0, 102, 255, 0.10)";
+      fg = isDark ? "#93C5FD" : "#0066FF";
       label = "BANK";
     }
 
@@ -182,7 +182,26 @@ export default function ExpenseItem({ expense, onEdit }: Props) {
     );
   };
 
-  const merchantName = expense.merchant || expense.note || "";
+  const getResolvedMerchantName = (): string => {
+    if (expense.merchant && expense.merchant.trim().length > 0) {
+      return expense.merchant.trim();
+    }
+    const noteText = (expense.note || "").toLowerCase();
+    const knownBrands = [
+      "swiggy", "zepto", "zomato", "blinkit", "amazon", "flipkart",
+      "uber", "ola", "paytm", "phonepe", "gpay", "google pay", "starbucks",
+      "netflix", "spotify", "cred", "myntra", "bigbasket", "dunzo", "jio",
+      "airtel", "makemytrip", "mmt", "bookmyshow", "urban company"
+    ];
+    for (const b of knownBrands) {
+      if (noteText.includes(b)) {
+        return b;
+      }
+    }
+    return expense.note || "";
+  };
+
+  const merchantName = getResolvedMerchantName();
 
   return (
     <Animated.View style={[styles.container, { transform: [{ scale: scaleAnim }] }]}>

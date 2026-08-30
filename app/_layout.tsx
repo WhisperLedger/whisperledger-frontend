@@ -33,6 +33,7 @@ import { BudgetProvider } from "@/context/BudgetContext";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { useColors } from "@/hooks/useColors";
 import {
+  DAILY_REMINDER_TYPE,
   logUserNotification,
   markSMSApprovalProcessed,
   setupNotifications,
@@ -345,22 +346,27 @@ function RootLayoutNav() {
         }
       }
 
-      if (typeof deepLink === "string" && deepLink.length > 0) {
+      const targetLink =
+        data.notificationType === DAILY_REMINDER_TYPE || data.openAdd
+          ? `/?openAdd=1&date=${data.date || new Date().toISOString().split("T")[0]}`
+          : deepLink;
+
+      if (typeof targetLink === "string" && targetLink.length > 0) {
         if (isLoading || !user) {
           // App not ready yet – stash the link and navigate once auth resolves
-          pendingDeepLink.current = deepLink;
+          pendingDeepLink.current = targetLink;
         } else {
           try {
-            router.push(deepLink as any);
+            router.push(targetLink as any);
           } catch {
             // If the target screen does not exist, navigate to home screen
-            router.push("/(tabs)" as any);
+            router.push("/" as any);
           }
         }
       } else {
         // No deep link – at least ensure we're on the home tab
         if (!isLoading && user) {
-          router.push("/(tabs)" as any);
+          router.push("/" as any);
         }
       }
     });
@@ -573,7 +579,7 @@ function AnimatedSplashScreen({ onFinish, fontsLoaded }: { onFinish: () => void;
                 ]}
               >
                 <LinearGradient
-                  colors={["#0F766E", "#F59E0B"]}
+                  colors={["#0066FF", "#3882FF"]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={StyleSheet.absoluteFill}
@@ -607,7 +613,7 @@ const splashStyles = StyleSheet.create({
     width: 280,
     height: 280,
     borderRadius: 140,
-    backgroundColor: "rgba(99, 102, 241, 0.18)",
+    backgroundColor: "rgba(0, 102, 255, 0.18)",
   },
   splashCenterWrap: {
     alignItems: "center",
@@ -622,9 +628,9 @@ const splashStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
-    borderColor: "rgba(99, 102, 241, 0.4)",
+    borderColor: "rgba(0, 102, 255, 0.4)",
     marginBottom: 20,
-    shadowColor: "#6366f1",
+    shadowColor: "#0066FF",
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.5,
     shadowRadius: 20,

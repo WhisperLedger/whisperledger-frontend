@@ -23,6 +23,8 @@ import {
   authenticateWithBiometrics,
   checkBiometricAvailable,
 } from "@/hooks/useBiometric";
+import { safeHaptics } from "@/utils/haptics";
+import * as Haptics from "expo-haptics";
 
 interface BiometricGateProps {
   children: React.ReactNode;
@@ -49,28 +51,47 @@ export function BiometricGate({ children }: BiometricGateProps) {
   // Animations
   const lockOpacity = useRef(new Animated.Value(1)).current;
   const lockScale = useRef(new Animated.Value(1)).current;
-  const iconPulse = useRef(new Animated.Value(1)).current;
+  const pulseAnim1 = useRef(new Animated.Value(1)).current;
+  const pulseAnim2 = useRef(new Animated.Value(1)).current;
   const appState = useRef(AppState.currentState);
   const lastUnlockedAt = useRef<number>(0);
   const RELOCK_GRACE_MS = 30_000;
 
   useEffect(() => {
-    const pulse = Animated.loop(
+    const pulse1 = Animated.loop(
       Animated.sequence([
-        Animated.timing(iconPulse, {
-          toValue: 1.08,
-          duration: 1400,
+        Animated.timing(pulseAnim1, {
+          toValue: 1.18,
+          duration: 1600,
           useNativeDriver: true,
         }),
-        Animated.timing(iconPulse, {
+        Animated.timing(pulseAnim1, {
           toValue: 1,
-          duration: 1400,
+          duration: 1600,
           useNativeDriver: true,
         }),
       ])
     );
-    pulse.start();
-    return () => pulse.stop();
+    const pulse2 = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim2, {
+          toValue: 1.32,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim2, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse1.start();
+    pulse2.start();
+    return () => {
+      pulse1.stop();
+      pulse2.stop();
+    };
   }, []);
 
   useEffect(() => {
@@ -78,7 +99,6 @@ export function BiometricGate({ children }: BiometricGateProps) {
 
     const timer = setTimeout(() => {
       if (active && checkingHardware) {
-        console.warn("[Biometric] Safety timeout triggered - bypassing biometric check");
         setCheckingHardware(false);
         setIsUnlocked(true);
       }
@@ -160,12 +180,14 @@ export function BiometricGate({ children }: BiometricGateProps) {
     if (isAuthenticating) return;
 
     setIsAuthenticating(true);
+    safeHaptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const result = await authenticateWithBiometrics(
       "Touch the fingerprint sensor to unlock WhisperLedger"
     );
     setIsAuthenticating(false);
 
     if (result.success) {
+      safeHaptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Animated.parallel([
         Animated.timing(lockOpacity, {
           toValue: 0,
@@ -178,6 +200,8 @@ export function BiometricGate({ children }: BiometricGateProps) {
           useNativeDriver: true,
         }),
       ]).start(() => setIsUnlocked(true));
+    } else {
+      safeHaptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   }, [isAuthenticating, lockOpacity, lockScale]);
 
@@ -199,12 +223,15 @@ export function BiometricGate({ children }: BiometricGateProps) {
     if (res.success) {
       setShowPasswordFallback(false);
       setIsUnlocked(true);
+      setFallbackPassword("");
     } else {
-      setFallbackError("Incorrect password. Please try again.");
+      setFallbackError(res.error || "Incorrect password. Please try again.");
     }
   };
 
-  if (isUnlocked) return <>{children}</>;
+  if (isUnlocked || !user) {
+    return <>{children}</>;
+  }
 
   return (
     <>
@@ -216,68 +243,97 @@ export function BiometricGate({ children }: BiometricGateProps) {
         ]}
       >
         <LinearGradient
-          colors={["#0F172A", "#1E1B4B", "#0B0D18"]}
+          colors={["#050811", "#0B132B", "#080B15"]}
           style={styles.gradient}
         >
-          <View style={[styles.container, { paddingTop: insets.top + 24 }]}>
-            {/* Logo */}
-            <View style={styles.logoWrap}>
-              <Image
-                source={require("../assets/images/icon.png")}
-                style={styles.logo}
-              />
+          {/* Subtle Ambient Radial Glow */}
+          <View style={styles.ambientAura} />
+
+          <View style={[styles.container, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20 }]}>
+            {/* Header Badge */}
+            <View style={styles.securityPill}>
+              <Feather name="lock" size={12} color="#60A5FA" />
+              <Text style={styles.securityPillText}>256-BIT ENCRYPTED VAULT</Text>
             </View>
 
-            <Text style={styles.appName}>WhisperLedger</Text>
-            <Text style={styles.subtitle}>Touch sensor or enter passcode to unlock</Text>
+            {/* App Branding */}
+            <View style={styles.brandWrap}>
+              <View style={styles.logoWrap}>
+                <Image
+                  source={require("../assets/images/icon.png")}
+                  style={styles.logo}
+                />
+              </View>
+              <Text style={styles.appName}>WhisperLedger</Text>
+              <Text style={styles.subtitle}>Private On-Device Financial Intelligence</Text>
+            </View>
 
-            {/* Biometric Icon Scanner Button */}
-            <TouchableOpacity
-              onPress={handleUnlockPress}
-              activeOpacity={0.75}
-              disabled={isAuthenticating}
-              style={styles.biometricButton}
-            >
+            {/* Central High-Tech Biometric Scanner Hub */}
+            <View style={styles.scannerCenter}>
+              {/* Outer Pulse Wave Ring */}
               <Animated.View
                 style={[
-                  styles.biometricIconWrap,
-                  { transform: [{ scale: iconPulse }] },
+                  styles.outerPulseRing,
+                  { transform: [{ scale: pulseAnim2 }] },
                 ]}
+              />
+
+              {/* Inner Pulse Glow Ring */}
+              <Animated.View
+                style={[
+                  styles.innerPulseRing,
+                  { transform: [{ scale: pulseAnim1 }] },
+                ]}
+              />
+
+              {/* Central Touch Target Button */}
+              <TouchableOpacity
+                onPress={handleUnlockPress}
+                activeOpacity={0.8}
+                disabled={isAuthenticating}
+                style={styles.scannerButton}
               >
                 <LinearGradient
-                  colors={["rgba(99,102,241,0.25)", "rgba(16,185,129,0.18)"]}
-                  style={styles.biometricGradient}
+                  colors={["#0066FF", "#1D4ED8"]}
+                  style={styles.scannerGrad}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
                 >
                   <Feather
-                    name={"shield" as any}
-                    size={48}
-                    color="#818CF8"
+                    name={biometricType === "faceId" ? "smile" : "shield"}
+                    size={42}
+                    color="#FFFFFF"
                   />
                 </LinearGradient>
-              </Animated.View>
-            </TouchableOpacity>
+              </TouchableOpacity>
+            </View>
 
-            <Text style={styles.unlockLabel}>
-              {isAuthenticating
-                ? "Scanning Biometrics…"
-                : biometricType === "faceId"
-                ? "Tap to scan Face ID"
-                : "Tap to scan Fingerprint"}
-            </Text>
+            {/* Scanner Status Label */}
+            <View style={styles.statusWrap}>
+              <Text style={styles.unlockLabel}>
+                {isAuthenticating
+                  ? "Verifying Secure Credentials…"
+                  : biometricType === "faceId"
+                  ? "Face ID Ready"
+                  : "Touch Fingerprint Sensor"}
+              </Text>
+              <Text style={styles.hint}>
+                Tap the shield to trigger hardware biometric scan
+              </Text>
+            </View>
 
-            <Text style={styles.hint}>
-              Supports Fingerprint, Face ID & Device PIN
-            </Text>
-
-            {/* Explicit Fallback Actions */}
+            {/* Explicit Fallback & Account Actions */}
             <View style={styles.fallbackActionsWrap}>
               <TouchableOpacity
-                onPress={() => setShowPasswordFallback(true)}
+                onPress={() => {
+                  safeHaptics.selectionAsync();
+                  setShowPasswordFallback(true);
+                }}
                 style={styles.fallbackPinBtn}
                 activeOpacity={0.8}
               >
-                <Feather name="key" size={16} color="#A5B4FC" style={{ marginRight: 8 }} />
-                <Text style={styles.fallbackPinText}>Use Account Password</Text>
+                <Feather name="key" size={15} color="#60A5FA" style={{ marginRight: 8 }} />
+                <Text style={styles.fallbackPinText}>Enter Password</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -292,7 +348,7 @@ export function BiometricGate({ children }: BiometricGateProps) {
                 style={styles.logoutButton}
                 activeOpacity={0.7}
               >
-                <Text style={styles.logoutText}>Sign Out</Text>
+                <Text style={styles.logoutText}>Sign Out of Account</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -301,30 +357,31 @@ export function BiometricGate({ children }: BiometricGateProps) {
         {/* Password Fallback Modal */}
         <Modal
           visible={showPasswordFallback}
-          animationType="slide"
+          animationType="fade"
           transparent
           onRequestClose={() => setShowPasswordFallback(false)}
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Enter Password to Unlock</Text>
-                <TouchableOpacity onPress={() => setShowPasswordFallback(false)}>
+                <Text style={styles.modalTitle}>Unlock Ledger</Text>
+                <TouchableOpacity onPress={() => setShowPasswordFallback(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                   <Feather name="x" size={20} color="#94A3B8" />
                 </TouchableOpacity>
               </View>
 
               <Text style={styles.modalSub}>
-                Confirm password for account ({user?.email || user?.username})
+                Enter password for {user?.email || user?.username}
               </Text>
 
               <TextInput
                 style={styles.modalInput}
-                placeholder="Enter password"
+                placeholder="Account password"
                 placeholderTextColor="#64748B"
                 secureTextEntry
                 value={fallbackPassword}
                 onChangeText={setFallbackPassword}
+                autoFocus
               />
 
               {!!fallbackError && (
@@ -335,9 +392,10 @@ export function BiometricGate({ children }: BiometricGateProps) {
                 style={styles.modalUnlockBtn}
                 onPress={handlePasswordUnlock}
                 disabled={fallbackLoading}
+                activeOpacity={0.85}
               >
                 <Text style={styles.modalUnlockBtnText}>
-                  {fallbackLoading ? "Verifying…" : "Unlock Ledger"}
+                  {fallbackLoading ? "Authenticating…" : "Unlock"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -356,20 +414,54 @@ const styles = StyleSheet.create({
   gradient: {
     flex: 1,
   },
+  ambientAura: {
+    position: "absolute",
+    width: 320,
+    height: 320,
+    borderRadius: 160,
+    backgroundColor: "rgba(0, 102, 255, 0.12)",
+    top: "30%",
+    alignSelf: "center",
+  },
   container: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
+    justifyContent: "space-between",
+    paddingHorizontal: 28,
+  },
+  securityPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(56, 130, 255, 0.12)",
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(56, 130, 255, 0.25)",
+  },
+  securityPillText: {
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    color: "#93C5FD",
+    letterSpacing: 0.8,
+  },
+  brandWrap: {
+    alignItems: "center",
   },
   logoWrap: {
-    width: 72,
-    height: 72,
+    width: 68,
+    height: 68,
     borderRadius: 20,
     overflow: "hidden",
-    marginBottom: 16,
+    marginBottom: 14,
     borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.15)",
+    borderColor: "rgba(56, 130, 255, 0.35)",
+    shadowColor: "#0066FF",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 8,
   },
   logo: {
     width: "100%",
@@ -377,68 +469,100 @@ const styles = StyleSheet.create({
     resizeMode: "cover",
   },
   appName: {
-    fontSize: 28,
+    fontSize: 26,
     fontFamily: "Inter_700Bold",
-    color: "#F8FAFC",
-    marginBottom: 6,
+    color: "#FFFFFF",
+    marginBottom: 4,
     letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: "Inter_400Regular",
     color: "#94A3B8",
-    marginBottom: 44,
+    textAlign: "center",
   },
-  biometricButton: {
-    marginBottom: 20,
+  scannerCenter: {
+    width: 150,
+    height: 150,
+    alignItems: "center",
+    justifyContent: "center",
+    marginVertical: 10,
   },
-  biometricIconWrap: {
-    borderRadius: 50,
+  outerPulseRing: {
+    position: "absolute",
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    borderWidth: 1.5,
+    borderColor: "rgba(56, 130, 255, 0.2)",
+    backgroundColor: "rgba(0, 102, 255, 0.04)",
+  },
+  innerPulseRing: {
+    position: "absolute",
+    width: 116,
+    height: 116,
+    borderRadius: 58,
+    borderWidth: 1.5,
+    borderColor: "rgba(56, 130, 255, 0.4)",
+    backgroundColor: "rgba(0, 102, 255, 0.08)",
+  },
+  scannerButton: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
     overflow: "hidden",
-    borderWidth: 2,
-    borderColor: "rgba(129,140,248,0.4)",
+    shadowColor: "#0066FF",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 18,
+    elevation: 10,
   },
-  biometricGradient: {
-    width: 104,
-    height: 104,
-    borderRadius: 50,
+  scannerGrad: {
+    width: "100%",
+    height: "100%",
     alignItems: "center",
     justifyContent: "center",
   },
+  statusWrap: {
+    alignItems: "center",
+  },
   unlockLabel: {
     fontSize: 16,
-    fontFamily: "Inter_600SemiBold",
-    color: "#C7D2FE",
-    marginBottom: 6,
+    fontFamily: "Inter_700Bold",
+    color: "#F8FAFC",
+    marginBottom: 4,
+    textAlign: "center",
   },
   hint: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: "Inter_400Regular",
     color: "#64748B",
     textAlign: "center",
-    marginBottom: 36,
   },
   fallbackActionsWrap: {
     alignItems: "center",
+    width: "100%",
     gap: 12,
   },
   fallbackPinBtn: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(99,102,241,0.12)",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 14,
+    justifyContent: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    paddingVertical: 13,
+    paddingHorizontal: 28,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(99,102,241,0.3)",
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    width: "100%",
   },
   fallbackPinText: {
-    color: "#C7D2FE",
+    color: "#F8FAFC",
     fontSize: 14,
     fontFamily: "Inter_600SemiBold",
   },
   logoutButton: {
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 16,
   },
   logoutText: {
@@ -453,11 +577,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   modalContent: {
-    backgroundColor: "#1E293B",
-    borderRadius: 20,
+    backgroundColor: "#0B132B",
+    borderRadius: 22,
     padding: 24,
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "rgba(56, 130, 255, 0.25)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 16,
   },
   modalHeader: {
     flexDirection: "row",
@@ -477,12 +606,12 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   modalInput: {
-    backgroundColor: "#0F172A",
-    borderRadius: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.07)",
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#334155",
+    borderColor: "rgba(255, 255, 255, 0.15)",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 13,
     color: "#F8FAFC",
     fontSize: 15,
     marginBottom: 16,
@@ -493,8 +622,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   modalUnlockBtn: {
-    backgroundColor: "#6366F1",
-    borderRadius: 12,
+    backgroundColor: "#0066FF",
+    borderRadius: 14,
     paddingVertical: 14,
     alignItems: "center",
   },

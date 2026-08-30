@@ -113,7 +113,7 @@ export default function MoneyRecoveryScreen() {
       {/* Summary Cards Row */}
       <View style={styles.statsRow}>
         <LinearGradient
-          colors={isDark ? ["#102a24", "#0a1815"] : ["#E8F3EF", "#FFFFFF"]}
+          colors={isDark ? ["#0B1224", "#0E1830"] : ["#F0F7FF", "#FFFFFF"]}
           style={[styles.statBox, { borderColor: colors.border }]}
         >
           <Text style={styles.statLabel}>TOTAL OWED TO YOU</Text>
@@ -126,7 +126,7 @@ export default function MoneyRecoveryScreen() {
         </LinearGradient>
 
         <LinearGradient
-          colors={colors.text === "#f8fafc" ? ["#062c22", "#091a16"] : ["#ECFDF5", "#D1FAE5"]}
+          colors={isDark ? ["#062418", "#081C15"] : ["#ECFDF5", "#FFFFFF"]}
           style={[styles.statBox, { borderColor: "rgba(16, 185, 129, 0.3)" }]}
         >
           <Text style={styles.statLabel}>RECOVERED SO FAR</Text>
@@ -211,7 +211,7 @@ export default function MoneyRecoveryScreen() {
       <FlatList
         data={filteredList}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100, paddingTop: 10 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 24, paddingTop: 10 }}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.emptyWrap}>

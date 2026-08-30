@@ -15,27 +15,27 @@ type AppColors = {
 };
 
 export function isDarkPalette(colors: Pick<AppColors, "text">) {
-  return colors.text.toLowerCase() === "#f8faf7" || colors.text.toLowerCase() === "#f8fafc";
+  return colors.text.toLowerCase() === "#f8fafc";
 }
 
 export function appGradients(colors: AppColors) {
   const dark = isDarkPalette(colors);
   return {
     page: dark
-      ? (["#080D0C", "#0F1B18"] as const)
-      : (["#F7F4EF", "#EFE8DD"] as const),
+      ? (["#080A10", "#0E111F"] as const)
+      : (["#F8FAFC", "#F0F7FF"] as const),
     hero: dark
-      ? (["#0B1513", "#11312D", "#0B1110"] as const)
-      : (["#E8F3EF", "#F7F4EF", "#FFF4D9"] as const),
+      ? (["#0B1224", "#0E1830", "#080A10"] as const)
+      : (["#F0F7FF", "#E0EEFF", "#FFFFFF"] as const),
     primary: dark
-      ? (["#14B8A6", "#0F766E"] as const)
-      : (["#0F766E", "#115E59"] as const),
+      ? (["#3882FF", "#2563EB"] as const)
+      : (["#0066FF", "#0052CC"] as const),
     action: dark
-      ? (["#F59E0B", "#EA580C"] as const)
-      : (["#F59E0B", "#F97316"] as const),
+      ? (["#3882FF", "#1D4ED8"] as const)
+      : (["#0066FF", "#0052CC"] as const),
     subtle: dark
-      ? (["rgba(45, 212, 191, 0.18)", "rgba(245, 158, 11, 0.08)"] as const)
-      : (["#FFFFFF", "#F3EEE5"] as const),
+      ? (["#161B30", "#0E111F"] as const)
+      : (["#FFFFFF", "#F8FAFC"] as const),
   };
 }
 
@@ -57,14 +57,15 @@ export function surfaceStyle(colors: AppColors, elevated = true): ViewStyle {
 export function iconSurface(colors: AppColors, tone: "primary" | "success" | "warning" | "danger" = "primary"): ViewStyle {
   const dark = isDarkPalette(colors);
   const bgByTone: Record<typeof tone, ColorValue> = {
-    primary: dark ? "rgba(45, 212, 191, 0.15)" : "#DDF7F0",
-    success: dark ? "rgba(94, 234, 212, 0.14)" : "#CCFBF1",
-    warning: dark ? "rgba(251, 191, 36, 0.14)" : "#FFF4D9",
+    primary: dark ? "rgba(56, 130, 255, 0.15)" : "rgba(0, 102, 255, 0.08)",
+    success: dark ? "rgba(16, 185, 129, 0.15)" : "rgba(16, 185, 129, 0.08)",
+    warning: dark ? "rgba(245, 158, 11, 0.15)" : "rgba(245, 158, 11, 0.08)",
     danger: dark ? "rgba(248, 113, 113, 0.14)" : "#FEE2E2",
   };
   return {
     backgroundColor: bgByTone[tone],
-    borderWidth: dark ? 1 : 0,
+    borderRadius: 14,
+    borderWidth: 1,
     borderColor: colors.border,
   };
 }

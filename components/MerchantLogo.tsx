@@ -24,9 +24,9 @@ export default function MerchantLogo({
     if (clean.includes("swiggy")) {
       return (
         <View style={[styles.brandContainer, { backgroundColor: "#FC8019" }]}>
-          <Svg width={size * 0.7} height={size * 0.7} viewBox="0 0 100 100">
+          <Svg width={size * 0.65} height={size * 0.65} viewBox="0 0 100 100">
             <Path
-              d="M50 15C33.4 15 20 28.4 20 45c0 22.5 30 40 30 40s30-17.5 30-40c0-16.6-13.4-30-30-30zm0 40c-5.5 0-10-4.5-10-10s4.5-10 10-10 10 4.5 10 10-4.5 10-10 10z"
+              d="M 50 10 C 33 10 20 23 20 40 C 20 58 35 72 50 90 C 50 90 50 90 50 90 C 52 87 56 82 60 77 C 48 67 40 57 40 45 C 40 37 45 31 50 31 C 56 31 60 36 60 43 C 60 50 54 54 48 57 C 44 59 38 61 34 64 L 40 73 C 46 68 55 65 62 61 C 71 56 77 47 77 36 C 77 21 65 10 50 10 Z"
               fill="#FFFFFF"
             />
           </Svg>
@@ -37,9 +37,11 @@ export default function MerchantLogo({
     if (clean.includes("zepto")) {
       return (
         <View style={[styles.brandContainer, { backgroundColor: "#3B0764" }]}>
-          <Text style={{ color: "#00F0FF", fontSize: Math.round(size * 0.38), fontWeight: "900", fontFamily: "Inter_700Bold" }}>
-            z<Text style={{ color: "#FF007A" }}>e</Text><Text style={{ color: "#FAFF00" }}>p</Text><Text style={{ color: "#00F0FF" }}>to</Text>
-          </Text>
+          <Svg width={size * 0.8} height={size * 0.45} viewBox="0 0 120 40">
+            <SvgText x="5" y="30" fill="#00F0FF" fontSize="28" fontWeight="900" fontFamily="Inter_700Bold">
+              z<SvgText fill="#FF007A">e</SvgText><SvgText fill="#FAFF00">p</SvgText><SvgText fill="#00F0FF">to</SvgText>
+            </SvgText>
+          </Svg>
         </View>
       );
     }
@@ -47,9 +49,11 @@ export default function MerchantLogo({
     if (clean.includes("zomato")) {
       return (
         <View style={[styles.brandContainer, { backgroundColor: "#CB202D" }]}>
-          <Text style={{ color: "#FFFFFF", fontSize: Math.round(size * 0.32), fontWeight: "900", fontStyle: "italic", fontFamily: "Inter_700Bold", letterSpacing: -0.5 }}>
-            zomato
-          </Text>
+          <Svg width={size * 0.8} height={size * 0.4} viewBox="0 0 120 40">
+            <SvgText x="5" y="28" fill="#FFFFFF" fontSize="26" fontWeight="900" fontStyle="italic" fontFamily="Inter_700Bold">
+              zomato
+            </SvgText>
+          </Svg>
         </View>
       );
     }
@@ -57,9 +61,11 @@ export default function MerchantLogo({
     if (clean.includes("blinkit")) {
       return (
         <View style={[styles.brandContainer, { backgroundColor: "#F7C600" }]}>
-          <Text style={{ color: "#1E1B4B", fontSize: Math.round(size * 0.35), fontWeight: "900", fontFamily: "Inter_700Bold" }}>
-            blink<Text style={{ color: "#10B981" }}>it</Text>
-          </Text>
+          <Svg width={size * 0.8} height={size * 0.4} viewBox="0 0 120 40">
+            <SvgText x="5" y="28" fill="#1E1B4B" fontSize="26" fontWeight="900" fontFamily="Inter_700Bold">
+              blink<SvgText fill="#10B981">it</SvgText>
+            </SvgText>
+          </Svg>
         </View>
       );
     }
@@ -67,11 +73,10 @@ export default function MerchantLogo({
     if (clean.includes("amazon")) {
       return (
         <View style={[styles.brandContainer, { backgroundColor: "#232F3E" }]}>
-          <Svg width={size * 0.75} height={size * 0.45} viewBox="0 0 100 40">
+          <Svg width={size * 0.78} height={size * 0.45} viewBox="0 0 100 40">
             <SvgText x="5" y="24" fill="#FFFFFF" fontSize="24" fontWeight="bold" fontFamily="Inter_700Bold">
               amazon
             </SvgText>
-
             <Path d="M 12 30 Q 50 42 84 26" stroke="#FF9900" strokeWidth="4" fill="none" />
             <Path d="M 80 22 L 87 27 L 82 32 Z" fill="#FF9900" />
           </Svg>
@@ -92,10 +97,68 @@ export default function MerchantLogo({
       );
     }
 
+    if (clean.includes("starbucks")) {
+      return (
+        <View style={[styles.brandContainer, { backgroundColor: "#00704A" }]}>
+          <Svg width={size * 0.65} height={size * 0.65} viewBox="0 0 100 100">
+            <Circle cx="50" cy="50" r="44" fill="#00704A" stroke="#FFFFFF" strokeWidth="4" />
+            <Circle cx="50" cy="50" r="30" fill="none" stroke="#FFFFFF" strokeWidth="3" />
+            <Path d="M 50 22 L 53 32 L 62 32 L 55 38 L 58 48 L 50 42 L 42 48 L 45 38 L 38 32 L 47 32 Z" fill="#FFFFFF" />
+          </Svg>
+        </View>
+      );
+    }
+
+    if (clean.includes("dunzo")) {
+      return (
+        <View style={[styles.brandContainer, { backgroundColor: "#00D290" }]}>
+          <Svg width={size * 0.65} height={size * 0.65} viewBox="0 0 100 100">
+            <Path d="M 30 20 L 55 20 C 70 20 80 30 80 50 C 80 70 70 80 55 80 L 30 80 Z" fill="#1E1B4B" />
+            <Path d="M 55 35 L 42 52 L 52 52 L 45 68 L 65 48 L 54 48 Z" fill="#00D290" />
+          </Svg>
+        </View>
+      );
+    }
+
+    if (clean.includes("myntra")) {
+      return (
+        <View style={[styles.brandContainer, { backgroundColor: "#FFFFFF" }]}>
+          <Svg width={size * 0.65} height={size * 0.65} viewBox="0 0 100 100">
+            <Path d="M 15 75 L 35 25 L 50 55 L 65 25 L 85 75" stroke="#E40046" strokeWidth="16" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            <Path d="M 35 25 L 50 55 L 65 25" stroke="#FF9900" strokeWidth="12" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        </View>
+      );
+    }
+
+    if (clean.includes("jio")) {
+      return (
+        <View style={[styles.brandContainer, { backgroundColor: "#0A2885" }]}>
+          <Svg width={size * 0.65} height={size * 0.65} viewBox="0 0 100 100">
+            <Circle cx="50" cy="50" r="42" fill="#E11B22" />
+            <SvgText x="22" y="62" fill="#FFFFFF" fontSize="36" fontWeight="900" fontFamily="Inter_700Bold">
+              Jio
+            </SvgText>
+          </Svg>
+        </View>
+      );
+    }
+
+    if (clean.includes("airtel")) {
+      return (
+        <View style={[styles.brandContainer, { backgroundColor: "#E40000" }]}>
+          <Svg width={size * 0.65} height={size * 0.65} viewBox="0 0 100 100">
+            <Path d="M 30 75 C 30 35 70 35 70 75 C 70 55 50 45 30 75 Z" fill="#FFFFFF" />
+            <Circle cx="70" cy="30" r="8" fill="#FFFFFF" />
+          </Svg>
+        </View>
+      );
+    }
+
     if (clean.includes("makemytrip") || clean.includes("mmt")) {
       return (
         <View style={[styles.brandContainer, { backgroundColor: "#EB2026" }]}>
-          <Text style={{ color: "#FFFFFF", fontSize: Math.round(size * 0.3), fontWeight: "900", fontFamily: "Inter_700Bold" }}>
+          <Text style={{ color: "#FFFFFF", fontSize: Math.round(size * 0.32), fontWeight: "900", fontFamily: "Inter_700Bold" }}>
             mmt
           </Text>
         </View>
@@ -243,7 +306,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.12)",
+    borderColor: "rgba(0, 0, 0, 0.08)",
   },
   brandContainer: {
     width: "100%",

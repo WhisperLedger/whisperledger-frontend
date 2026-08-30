@@ -18,14 +18,22 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
+import { isDarkPalette, surfaceStyle } from "@/utils/designSystem";
 import { safeHaptics } from "@/utils/haptics";
 import { validatePassword } from "@/utils/passwordValidator";
 import { validateEmail, validateFullName, validateUsername } from "@/utils/validation";
+import FormattedErrorMessage from "@/components/FormattedErrorMessage";
 
 function translateAuthError(rawError: string | object): string {
   if (!rawError) return "An unexpected error occurred. Please try again.";
   
-  const errorString = typeof rawError === "object" ? JSON.stringify(rawError) : String(rawError);
+  let errorString = "";
+  if (typeof rawError === "object") {
+    errorString = (rawError as any).message || (rawError as any).error || JSON.stringify(rawError);
+  } else {
+    errorString = String(rawError);
+  }
+  
   const msg = errorString.toLowerCase();
   
   if (msg.includes("developer_error") || msg.includes("developer-error")) {
@@ -56,13 +64,14 @@ function translateAuthError(rawError: string | object): string {
     return "Registration was cancelled.";
   }
   
-  return "Unable to create account. Please verify your details and try again.";
+  return errorString.length > 5 && !errorString.includes("Firebase:") ? errorString : "Registration failed. Please check your details and try again.";
 }
 
 export default function RegisterScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { register } = useAuth();
+  const isDark = isDarkPalette(colors);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -138,7 +147,7 @@ export default function RegisterScreen() {
       width: 40,
       height: 40,
       borderRadius: 12,
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+      backgroundColor: isDark ? "rgba(248, 250, 252, 0.08)" : "rgba(15, 23, 42, 0.04)",
       borderWidth: 1,
       borderColor: colors.border,
       alignItems: "center",
@@ -159,16 +168,8 @@ export default function RegisterScreen() {
       marginBottom: 32,
     },
     card: {
-      backgroundColor: colors.card,
-      borderRadius: 24,
+      ...surfaceStyle(colors),
       padding: 24,
-      borderWidth: colors.text === "#f8fafc" ? 1 : 0,
-      borderColor: colors.border,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 12 },
-      shadowOpacity: 0.15,
-      shadowRadius: 16,
-      elevation: 8,
     },
     label: {
       fontSize: 12,
@@ -182,9 +183,9 @@ export default function RegisterScreen() {
     inputWrap: {
       flexDirection: "row",
       alignItems: "center",
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.04)" : colors.muted,
+      backgroundColor: colors.input,
       borderRadius: 12,
-      borderWidth: 1.5,
+      borderWidth: 1,
       borderColor: colors.border,
       paddingHorizontal: 14,
     },
@@ -197,7 +198,7 @@ export default function RegisterScreen() {
     },
     pwdHintsWrap: {
       marginTop: 10,
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+      backgroundColor: isDark ? "rgba(248, 250, 252, 0.04)" : "rgba(15, 23, 42, 0.03)",
       borderRadius: 10,
       padding: 10,
       borderWidth: 1,
@@ -262,7 +263,7 @@ export default function RegisterScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={colors.text === "#f8fafc" ? ["#080D0C", "#0F1B18"] : ["#F7F4EF", "#EFE8DD"]} style={styles.gradient}>
+      <LinearGradient colors={colors.text === "#f8fafc" ? ["#080A10", "#0E111F"] : ["#F8FAFC", "#F0F7FF"]} style={styles.gradient}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}>
           <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: 80 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <View style={styles.inner}>
@@ -413,10 +414,7 @@ export default function RegisterScreen() {
                 </TouchableOpacity>
 
                 {!!error && (
-                  <View style={styles.errorBox}>
-                    <Feather name="alert-circle" size={14} color="#dc2626" />
-                    <Text style={styles.errorText}>{error}</Text>
-                  </View>
+                  <FormattedErrorMessage message={error} onDismiss={() => setError("")} />
                 )}
 
                 <TouchableOpacity

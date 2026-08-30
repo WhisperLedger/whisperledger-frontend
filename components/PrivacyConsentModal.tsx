@@ -71,8 +71,8 @@ export default function PrivacyConsentModal({
         >
           {/* Header */}
           <View style={styles.header}>
-            <View style={styles.iconCircle}>
-              <Feather name="shield" size={24} color="#6366F1" />
+            <View style={[styles.iconCircle, { backgroundColor: isDark ? "rgba(56, 130, 255, 0.15)" : "#F0F7FF" }]}>
+              <Feather name="shield" size={24} color={colors.primary} />
             </View>
             <Text style={[styles.title, { color: colors.foreground }]}>
               SMS & Privacy Consent
@@ -102,7 +102,7 @@ export default function PrivacyConsentModal({
             {/* Clause 2 */}
             <View style={[styles.clauseCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
               <View style={styles.clauseHeader}>
-                <Feather name="crosshair" size={18} color="#6366F1" />
+                <Feather name="crosshair" size={18} color={colors.primary} />
                 <Text style={[styles.clauseTitle, { color: colors.foreground }]}>Strict Financial Scope</Text>
               </View>
               <Text style={[styles.clauseBody, { color: colors.mutedForeground }]}>
@@ -224,7 +224,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: "rgba(99, 102, 241, 0.15)",
+    backgroundColor: "rgba(0, 102, 255, 0.15)",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 12,
@@ -289,8 +289,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   checkboxActive: {
-    backgroundColor: "#6366F1",
-    borderColor: "#6366F1",
+    backgroundColor: "#0066FF",
+    borderColor: "#0066FF",
   },
   checkboxText: {
     flex: 1,
@@ -306,12 +306,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     height: 50,
     borderRadius: 16,
-    backgroundColor: "#6366F1",
+    backgroundColor: "#0066FF",
     alignItems: "center",
     justifyContent: "center",
   },
   confirmBtnDisabled: {
-    backgroundColor: "rgba(99, 102, 241, 0.35)",
+    backgroundColor: "rgba(0, 102, 255, 0.35)",
     opacity: 0.5,
   },
   confirmBtnText: {

@@ -24,7 +24,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { CATEGORIES, CategoryId, useExpenses } from "@/context/ExpenseContext";
 import { useColors } from "@/hooks/useColors";
 import { generateAndSharePDF, queueMonthlyStatementEmail } from "@/utils/pdfGenerator";
-import { appGradients, iconSurface, surfaceStyle } from "@/utils/designSystem";
+import { appGradients, iconSurface, surfaceStyle, bottomInset } from "@/utils/designSystem";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -351,7 +351,7 @@ export default function AnalyticsScreen() {
       width: 32,
       height: 32,
       borderRadius: 8,
-      backgroundColor: isDark ? "rgba(45, 212, 191, 0.10)" : "#E8F3EF",
+      backgroundColor: isDark ? "rgba(56, 130, 255, 0.12)" : "rgba(0, 102, 255, 0.08)",
       alignItems: "center",
       justifyContent: "center",
     },
@@ -443,19 +443,78 @@ export default function AnalyticsScreen() {
       fontFamily: "Inter_700Bold",
       fontSize: 13,
     },
+    overviewCard: {
+      marginHorizontal: 16,
+      marginBottom: 14,
+      padding: 18,
+      overflow: "hidden",
+      ...surfaceStyle(colors),
+    },
+    overviewTopRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: 14,
+    },
+    overviewEyebrow: {
+      fontSize: 11,
+      color: colors.mutedForeground,
+      fontFamily: "Inter_700Bold",
+      letterSpacing: 0.6,
+      textTransform: "uppercase",
+    },
+    overviewAmount: {
+      fontSize: 34,
+      fontWeight: "800",
+      fontFamily: "Inter_700Bold",
+      color: colors.foreground,
+      marginTop: 6,
+    },
+    overviewSubtitle: {
+      fontSize: 13,
+      color: colors.mutedForeground,
+      fontFamily: "Inter_400Regular",
+      marginTop: 4,
+    },
+    overviewIcon: {
+      width: 46,
+      height: 46,
+      borderRadius: 14,
+      alignItems: "center",
+      justifyContent: "center",
+      ...iconSurface(colors, "primary"),
+    },
+    overviewMetrics: {
+      flexDirection: "row",
+      gap: 10,
+      marginTop: 16,
+    },
+    overviewMetric: {
+      flex: 1,
+      borderRadius: 12,
+      backgroundColor: isDark ? "rgba(248,250,252,0.04)" : colors.muted,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 10,
+    },
+    overviewMetricLabel: {
+      fontSize: 10,
+      color: colors.mutedForeground,
+      fontFamily: "Inter_600SemiBold",
+      textTransform: "uppercase",
+      letterSpacing: 0.3,
+    },
+    overviewMetricValue: {
+      fontSize: 14,
+      color: colors.foreground,
+      fontFamily: "Inter_700Bold",
+      marginTop: 4,
+    },
     statsRow: { flexDirection: "row", marginHorizontal: 16, gap: 10, marginBottom: 10 },
     statCard: {
       flex: 1,
-      backgroundColor: colors.card,
-      borderRadius: 16,
       padding: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: colors.text === "#f8fafc" ? 0.15 : 0.02,
-      shadowRadius: 6,
-      elevation: 2,
+      ...surfaceStyle(colors, false),
     },
     statLabel: { fontSize: 10.5, color: colors.mutedForeground, fontFamily: "Inter_600SemiBold", letterSpacing: 0.4 },
     statValue: { fontSize: 20, fontWeight: "700", fontFamily: "Inter_700Bold", color: colors.foreground, marginTop: 4 },
@@ -463,22 +522,21 @@ export default function AnalyticsScreen() {
     statSubPositive: { fontSize: 11, color: "#16a34a", fontFamily: "Inter_500Medium", marginTop: 3 },
     statSubNegative: { fontSize: 11, color: "#dc2626", fontFamily: "Inter_500Medium", marginTop: 3 },
     card: {
-      backgroundColor: colors.card,
-      borderRadius: 16,
       marginHorizontal: 16,
       padding: 16,
       marginBottom: 14,
-      borderWidth: 1,
-      borderColor: colors.border,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: colors.text === "#f8fafc" ? 0.15 : 0.02,
-      shadowRadius: 6,
-      elevation: 2,
+      ...surfaceStyle(colors),
     },
     cardTitle: { fontSize: 14, fontWeight: "600", fontFamily: "Inter_600SemiBold", color: colors.foreground, marginBottom: 14 },
     insightRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 10, gap: 10 },
-    insightBox: { flex: 1, backgroundColor: colors.muted, borderRadius: 12, padding: 12 },
+    insightBox: {
+      flex: 1,
+      backgroundColor: isDark ? "rgba(248,250,252,0.04)" : colors.muted,
+      borderRadius: 12,
+      padding: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
     insightLabel: { fontSize: 10, color: colors.mutedForeground, fontFamily: "Inter_500Medium", letterSpacing: 0.3 },
     insightValue: { fontSize: 14, fontFamily: "Inter_700Bold", fontWeight: "700", color: colors.foreground, marginTop: 4 },
     payRow: { marginBottom: 12 },
@@ -500,10 +558,10 @@ export default function AnalyticsScreen() {
     catAmt: { fontSize: 14, fontWeight: "700", fontFamily: "Inter_700Bold", color: colors.foreground, marginRight: 8 },
     catPct: { fontSize: 12, color: colors.mutedForeground, fontFamily: "Inter_400Regular", width: 34, textAlign: "right" },
     barBg: { height: 4, borderRadius: 2, backgroundColor: colors.muted, marginTop: 4, marginLeft: 48 },
-    scrollContent: { paddingBottom: Platform.OS === "web" ? 34 + 84 : insets.bottom + 84 },
+    scrollContent: { paddingBottom: bottomInset(insets.bottom) },
     segmentRow: {
       flexDirection: "row",
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
+      backgroundColor: isDark ? "rgba(248,250,252,0.04)" : colors.muted,
       borderRadius: 12,
       padding: 3,
       marginHorizontal: 16,
@@ -580,7 +638,7 @@ export default function AnalyticsScreen() {
       width: 64,
       height: 64,
       borderRadius: 20,
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.15)" : "rgba(99, 102, 241, 0.08)",
+      backgroundColor: colors.text === "#f8fafc" ? "rgba(56, 130, 255, 0.15)" : "rgba(0, 102, 255, 0.08)",
       alignItems: "center",
       justifyContent: "center",
       marginBottom: 16,
@@ -672,7 +730,55 @@ export default function AnalyticsScreen() {
 
         {activeSegment === "charts" ? (
           <>
-            {/* Unified Premium Statement Card */}
+            <View style={s.overviewCard}>
+              <View style={s.overviewTopRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.overviewEyebrow}>Monthly Spend</Text>
+                  <Text style={s.overviewAmount} numberOfLines={1} adjustsFontSizeToFit>
+                    ₹{Number(totalSpend || 0).toLocaleString("en-IN")}
+                  </Text>
+                  <Text style={s.overviewSubtitle}>
+                    {MONTH_NAMES[month - 1]} {year} · {expensesThisMonth.length} transaction{expensesThisMonth.length !== 1 ? "s" : ""}
+                  </Text>
+                </View>
+                <View style={s.overviewIcon}>
+                  <Feather name="activity" size={21} color={colors.primary} />
+                </View>
+              </View>
+
+              <View style={s.overviewMetrics}>
+                <View style={s.overviewMetric}>
+                  <Text style={s.overviewMetricLabel}>Active Days</Text>
+                  <Text style={s.overviewMetricValue}>{trackedDaysCount}</Text>
+                </View>
+                <View style={s.overviewMetric}>
+                  <Text style={s.overviewMetricLabel}>Avg / Day</Text>
+                  <Text style={s.overviewMetricValue}>
+                    ₹{Number(Math.round(avgPerDay) || 0).toLocaleString("en-IN")}
+                  </Text>
+                </View>
+                <View style={s.overviewMetric}>
+                  <Text style={s.overviewMetricLabel}>No-Spend</Text>
+                  <Text style={s.overviewMetricValue}>{noSpendDays}/{daysInSelectedMonth}</Text>
+                </View>
+              </View>
+
+              <Text
+                style={[
+                  prevTotalSpend <= 0
+                    ? s.statSub
+                    : monthChangePct >= 0
+                      ? s.statSubNegative
+                      : s.statSubPositive,
+                  { marginTop: 12 },
+                ]}
+              >
+                {prevTotalSpend <= 0
+                  ? "No previous month data available"
+                  : `${monthChangeLabel} · Previous: ₹${Number(prevTotalSpend || 0).toLocaleString("en-IN")}`}
+              </Text>
+            </View>
+
             <View style={s.statementCard}>
               <View style={s.statementHeader}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
@@ -726,48 +832,6 @@ export default function AnalyticsScreen() {
                   {emailingStatement ? "Queuing Email..." : "Email Statement"}
                 </Text>
               </TouchableOpacity>
-            </View>
-
-            {/* Dashboard Stats Row 1 */}
-            <View style={s.statsRow}>
-              <View style={s.statCard}>
-                <Text style={s.statLabel} numberOfLines={1} adjustsFontSizeToFit>TOTAL SPENT</Text>
-                <Text style={s.statValue} numberOfLines={1} adjustsFontSizeToFit>₹{Number(totalSpend || 0).toLocaleString("en-IN")}</Text>
-                <Text style={s.statSub} numberOfLines={1}>
-                  {expensesThisMonth.length} transaction{expensesThisMonth.length !== 1 ? "s" : ""}
-                </Text>
-              </View>
-              <View style={s.statCard}>
-                <Text style={s.statLabel} numberOfLines={1} adjustsFontSizeToFit>AVG / ACTIVE DAY</Text>
-                <Text style={s.statValue} numberOfLines={1} adjustsFontSizeToFit>₹{Number(Math.round(avgPerDay) || 0).toLocaleString("en-IN")}</Text>
-                <Text style={s.statSub} numberOfLines={1}>{trackedDaysCount} active days</Text>
-              </View>
-            </View>
-
-            {/* Dashboard Stats Row 2 */}
-            <View style={s.statsRow}>
-              <View style={s.statCard}>
-                <Text style={s.statLabel} numberOfLines={1} adjustsFontSizeToFit>VS LAST MONTH</Text>
-                <Text style={s.statValue} numberOfLines={1} adjustsFontSizeToFit>₹{Number(prevTotalSpend || 0).toLocaleString("en-IN")}</Text>
-                <Text
-                  style={
-                    prevTotalSpend <= 0
-                      ? s.statSub
-                      : monthChangePct >= 0
-                        ? s.statSubNegative
-                        : s.statSubPositive
-                  }
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                >
-                  {monthChangeLabel}
-                </Text>
-              </View>
-              <View style={s.statCard}>
-                <Text style={s.statLabel} numberOfLines={1} adjustsFontSizeToFit>NO-SPEND DAYS</Text>
-                <Text style={s.statValue} numberOfLines={1} adjustsFontSizeToFit>{noSpendDays}</Text>
-                <Text style={s.statSub} numberOfLines={1}>Out of {daysInSelectedMonth} days</Text>
-              </View>
             </View>
 
             {totalSpend > 0 && topCategory && (
@@ -825,7 +889,7 @@ export default function AnalyticsScreen() {
                         }}>
                           {pct > 0 ? (
                             <LinearGradient
-                              colors={isCurrent ? ["#6366f1", "#8b5cf6"] : [colors.mutedForeground + "40", colors.mutedForeground + "20"]}
+                              colors={isCurrent ? gradients.primary : [colors.mutedForeground + "40", colors.mutedForeground + "20"]}
                               style={{
                                 height: `${Math.max(pct * 100, 10)}%`,
                                 borderRadius: 9,
@@ -933,7 +997,7 @@ export default function AnalyticsScreen() {
                     onPress={() => { Haptics.selectionAsync(); setDrillCategory(cat.id); }}
                     style={[s.catRow, isLast && { borderBottomWidth: 0 }]}
                   >
-                    <View style={[s.catIcon, { backgroundColor: colors.text === "#f8fafc" ? `${cat.color}1c` : cat.lightColor }]}>
+                    <View style={[s.catIcon, { backgroundColor: isDark ? `${cat.color}22` : `${cat.color}15` }]}>
                       <Feather name={cat.icon as any} size={18} color={cat.color} />
                     </View>
                     <View style={{ flex: 1 }}>
@@ -1443,7 +1507,7 @@ export default function AnalyticsScreen() {
                     style={{ borderRadius: 14, overflow: "hidden" }}
                   >
                     <LinearGradient
-                      colors={["#6366f1", "#7c3aed"]}
+                      colors={gradients.primary}
                       style={{
                         paddingVertical: 16,
                         alignItems: "center",

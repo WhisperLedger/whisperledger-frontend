@@ -171,7 +171,7 @@ function parseTransactionLine(line: string, fallbackDate?: string): (ParsedExpen
   if (!lower) return null;
 
   // 1. Parse Amount
-  const amountRegex = /(?:spent|add|log|pay|paid|cost|worth|rupees|rs\.?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)|([,\d]+(?:\.\d{1,2})?)\s*(?:rupees|rs\.?|inr|₹|spent|on)/i;
+  const amountRegex = /(?:spent|spend|spended|add|log|pay|paid|buying|bought|buy|cost|worth|rupees|ruppes|rupee|rs\.?|inr|₹|bucks)\s*([\d,]+(?:\.\d{1,2})?)|([,\d]+(?:\.\d{1,2})?)\s*(?:rupees|ruppes|rupee|rs\.?|inr|₹|bucks|spent|spend|on)/i;
   const amountMatch = line.match(amountRegex) || line.match(/\b(\d+(?:\.\d{1,2})?)\b/);
   if (!amountMatch) return null;
 
@@ -400,11 +400,13 @@ export default function ChatbotScreen() {
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
   const finalVoiceResultHandledRef = useRef(false);
+  const latestVoiceTranscriptRef = useRef("");
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const gradients = appGradients(colors);
 
   useSpeechRecognitionEvent("start", () => {
     finalVoiceResultHandledRef.current = false;
+    latestVoiceTranscriptRef.current = "";
     setIsListening(true);
     setVoiceStatus("Listening...");
   });
@@ -412,17 +414,26 @@ export default function ChatbotScreen() {
   useSpeechRecognitionEvent("end", () => {
     setIsListening(false);
     setVoiceStatus("");
+    if (!finalVoiceResultHandledRef.current && latestVoiceTranscriptRef.current.trim()) {
+      finalVoiceResultHandledRef.current = true;
+      const transcript = latestVoiceTranscriptRef.current.trim();
+      latestVoiceTranscriptRef.current = "";
+      setInputText("");
+      void submitMessage(transcript);
+    }
   });
 
   useSpeechRecognitionEvent("result", (event) => {
     const transcript = event.results[0]?.transcript?.trim() || "";
     if (!transcript) return;
 
+    latestVoiceTranscriptRef.current = transcript;
     setInputText(transcript);
-    setVoiceStatus(event.isFinal ? "Processing voice command..." : transcript);
+    setVoiceStatus(event.isFinal ? "Processing voice command..." : `🎙 Listening: "${transcript}"`);
 
     if (event.isFinal && !finalVoiceResultHandledRef.current) {
       finalVoiceResultHandledRef.current = true;
+      latestVoiceTranscriptRef.current = "";
       setInputText("");
       void submitMessage(transcript);
     }
@@ -563,8 +574,8 @@ export default function ChatbotScreen() {
     ) intents.push("support");
 
     // Expense log. Detect this before analytics so "spent 150 on lunch" does not become a report query.
-    const expenseRegex = /(?:spent|paid|pay|add|log|cost|worth|₹|rs\.?\s*\d|\d\s*rs\.?|inr)\s*[\d,]+|[\d,]+\s*(?:rupees|rs\.?|inr|₹)/i;
-    const isExpenseLog = expenseRegex.test(lower);
+    const expenseRegex = /(?:spent|spend|spended|paid|pay|buying|bought|buy|add|log|cost|worth|₹|rs\.?\s*\d|\d\s*rs\.?|inr)\s*[\d,]+|[\d,]+\s*(?:rupees|ruppes|rupee|rs\.?|inr|₹|bucks)/i;
+    const isExpenseLog = expenseRegex.test(lower) || parseTransactionLine(lower) !== null;
     if (isExpenseLog) intents.push("expense");
 
     // PDF / statement
@@ -1149,13 +1160,11 @@ export default function ChatbotScreen() {
 
           const { amount, categoryId, note, date } = parsed;
 
-          if (categoryId === "other") {
+          if (categoryId === "other" && !note) {
             setConvState({ step: "awaiting_category", amount, note, date });
-            addMessage("bot", `Got it — **₹${amount}**${note ? ` for *${note}*` : ""} on **${date.split("-").reverse().join("/")}**! 👌\n\nWhich category should I file this under? (e.g. Food, Groceries, Travel, Shopping...)`);
+            addMessage("bot", `Got it — **₹${amount}** on **${date.split("-").reverse().join("/")}**! 👌\n\nWhich category should I file this under? (e.g. Food, Groceries, Travel, Shopping...)`);
           } else {
-            const catLabel = CATEGORIES.find((c) => c.id === categoryId)?.label || "Other";
-            setConvState({ step: "awaiting_confirmation", amount, categoryId, note, date });
-            addMessage("bot", `Noted! **₹${amount}**${note ? ` — *${note}*` : ""} under **${catLabel}** on **${date.split("-").reverse().join("/")}** 📝\n\nShall I save this? (Yes / No)`);
+            await executeAddExpense(amount, categoryId, note, date);
           }
           break;
         }
@@ -1279,7 +1288,7 @@ export default function ChatbotScreen() {
       shadowColor: colors.primary, shadowOffset: { width: 0, height: 1 },
       shadowOpacity: 0.06, shadowRadius: 3, elevation: 1,
     },
-    chipText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: colors.mutedForeground },
+    chipText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: colors.foreground },
     inputArea: {
       backgroundColor: colors.card,
       borderTopWidth: 1, borderTopColor: colors.border,

@@ -39,6 +39,7 @@ interface User {
   name: string;
   email: string;
   avatarUri?: string;
+  avatarResizeMode?: "cover" | "contain";
   username?: string;
   bio?: string;
 }
@@ -276,13 +277,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await updateProfileFirebase(userCredential.user, { displayName: cleanName });
       
       // Send verification link to user's email
+      let emailSent = false;
       try {
         await sendEmailVerification(userCredential.user);
+        emailSent = true;
         console.log("📧 Verification email sent to:", cleanEmail);
-      } catch (evErr) {
-        console.warn("Failed to send email verification:", evErr);
-        await deleteUser(userCredential.user).catch(() => null);
-        return { success: false, error: "Could not send verification email. Please check the address and try again." };
+      } catch (evErr: any) {
+        console.warn("⚠️ Failed to send email verification during registration (non-fatal):", evErr);
       }
 
       console.log("📡 [AuthContext] Saving pending user record to Firestore...");

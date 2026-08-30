@@ -9,6 +9,8 @@ import { getReceivableStatusMeta, calculateDaysOverdue } from "@/utils/recoveryE
 import { safeHaptics } from "@/utils/haptics";
 import MerchantLogo from "@/components/MerchantLogo";
 
+import { surfaceStyle } from "@/utils/designSystem";
+
 interface ReceivableItemCardProps {
   receivable: Receivable;
   onPress: (item: Receivable) => void;
@@ -35,8 +37,8 @@ export default function ReceivableItemCard({ receivable, onPress, onStartRecover
       }}
       style={[
         styles.card,
+        surfaceStyle(colors, false),
         {
-          backgroundColor: colors.card,
           borderColor: meta.isOverdue ? "rgba(239, 68, 68, 0.4)" : colors.border,
         },
       ]}

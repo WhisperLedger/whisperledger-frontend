@@ -57,9 +57,9 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { getExpensesForDate, getTotalForDate } = useExpenses();
   const { user } = useAuth();
-  const params = useLocalSearchParams<{ openAdd?: string }>();
+  const params = useLocalSearchParams<{ openAdd?: string; date?: string }>();
 
-  const [selectedDate, setSelectedDate] = useState(todayISO());
+  const [selectedDate, setSelectedDate] = useState(params.date || todayISO());
   const [showAdd, setShowAdd] = useState(false);
   const [showAddReceivable, setShowAddReceivable] = useState(false);
   const [editExpense, setEditExpense] = useState<Expense | null>(null);
@@ -94,30 +94,33 @@ export default function HomeScreen() {
   }, [user]);
 
   useEffect(() => {
+    if (params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date)) {
+      setSelectedDate(params.date);
+    }
     if (params.openAdd === "1" || params.openAdd === "true") {
       setEditExpense(null);
       setShowAdd(true);
-      router.replace("/");
+      router.replace(params.date ? `/?date=${params.date}` : "/");
     }
-  }, [params.openAdd]);
+  }, [params.openAdd, params.date]);
 
   const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     gradHeader: {
       paddingTop: topPad + 16,
       paddingHorizontal: 20,
-      paddingBottom: 26,
+      paddingBottom: 20,
     },
     greetRow: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      marginBottom: 20,
+      marginBottom: 16,
     },
     greeting: {
-      fontSize: 14,
-      color: isDark ? "rgba(248,250,247,0.72)" : colors.mutedForeground,
-      fontFamily: "Inter_400Regular",
+      fontSize: 13,
+      color: colors.mutedForeground,
+      fontFamily: "Inter_500Medium",
     },
     headerTitle: {
       fontSize: 22,
@@ -130,7 +133,15 @@ export default function HomeScreen() {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      ...surfaceStyle(colors),
+      backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "#FFFFFF",
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0, 102, 255, 0.08)",
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.2 : 0.06,
+      shadowRadius: 12,
+      elevation: 2,
     },
     totalLabel: {
       fontSize: 12,
@@ -152,12 +163,12 @@ export default function HomeScreen() {
       marginTop: 4,
     },
     countBubble: {
-      backgroundColor: isDark ? "rgba(45, 212, 191, 0.12)" : "#E8F3EF",
+      backgroundColor: isDark ? "rgba(56, 130, 255, 0.15)" : "#F0F7FF",
       borderRadius: 999,
       paddingHorizontal: 12,
       paddingVertical: 6,
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: isDark ? "rgba(56, 130, 255, 0.3)" : "rgba(0, 102, 255, 0.2)",
     },
     countText: {
       fontSize: 14,
@@ -166,7 +177,7 @@ export default function HomeScreen() {
       color: colors.primary,
     },
     weekStrip: {
-      backgroundColor: colors.card,
+      backgroundColor: colors.background,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
       paddingVertical: 12,
@@ -253,6 +264,8 @@ export default function HomeScreen() {
       borderRadius: 28,
       alignItems: "center",
       justifyContent: "center",
+      backgroundColor: colors.primary,
+      overflow: "hidden",
       shadowColor: colors.primary,
       shadowOffset: { width: 0, height: 6 },
       shadowOpacity: 0.35,
@@ -260,12 +273,14 @@ export default function HomeScreen() {
       elevation: 6,
     },
     notifyBtn: {
-      width: 38,
-      height: 38,
+      width: 40,
+      height: 40,
       borderRadius: 12,
       alignItems: "center",
       justifyContent: "center",
-      ...iconSurface(colors),
+      backgroundColor: isDark ? "rgba(56, 130, 255, 0.15)" : "#F0F7FF",
+      borderWidth: 1,
+      borderColor: colors.border,
     },
     notifyBadge: {
       position: "absolute",
@@ -292,7 +307,7 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={gradients.hero}
+        colors={isDark ? ["#0B1224", "#0E1830", colors.background] : ["#F0F7FF", "#E8F2FF", colors.background]}
         style={styles.gradHeader}
       >
         <View style={styles.greetRow}>
@@ -305,7 +320,7 @@ export default function HomeScreen() {
             activeOpacity={0.8}
             onPress={() => router.push("/notifications")}
           >
-            <Feather name="bell" size={20} color={colors.foreground} />
+            <Feather name="bell" size={20} color={colors.primary} />
             {unreadCount > 0 && (
               <View style={styles.notifyBadge}>
                 <Text style={styles.notifyBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
@@ -347,7 +362,7 @@ export default function HomeScreen() {
                   isSelected
                     ? {
                         backgroundColor: colors.primary,
-                        borderColor: isDark ? "rgba(248, 250, 247, 0.16)" : "rgba(15, 118, 110, 0.20)",
+                        borderColor: isDark ? "rgba(248, 250, 252, 0.16)" : "rgba(0, 102, 255, 0.20)",
                         shadowColor: colors.primary,
                         shadowOffset: { width: 0, height: 4 },
                         shadowOpacity: 0.18,
@@ -355,7 +370,7 @@ export default function HomeScreen() {
                         elevation: 3,
                       }
                     : {
-                        backgroundColor: isDark ? "rgba(248, 250, 247, 0.03)" : "#FFFFFF",
+                        backgroundColor: isDark ? "rgba(248, 250, 252, 0.03)" : "#FFFFFF",
                         borderColor: colors.border,
                       },
                 ]}

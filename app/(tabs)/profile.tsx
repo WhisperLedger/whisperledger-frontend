@@ -27,7 +27,7 @@ import { useColors } from "@/hooks/useColors";
 import { isSmsAutoSyncAvailable, requestSmsPermission } from "@/utils/smsParser";
 import { queueSMSApprovalNotifications, registerSMSBackgroundSync, unregisterSMSBackgroundSync } from "@/utils/smsSync";
 import { useTheme } from "@/context/ThemeContext";
-import { appGradients, iconSurface, isDarkPalette, surfaceStyle } from "@/utils/designSystem";
+import { appGradients, iconSurface, isDarkPalette, surfaceStyle, bottomInset } from "@/utils/designSystem";
 
 interface MenuItemProps {
   icon: string;
@@ -131,6 +131,8 @@ export default function ProfileScreen() {
   const [showAvatarPreview, setShowAvatarPreview] = useState(false);
   const [savingAvatar, setSavingAvatar] = useState(false);
 
+  const [previewFitMode, setPreviewFitMode] = useState<"cover" | "contain">(user?.avatarResizeMode || "cover");
+
   React.useEffect(() => {
     setAvatarLoadFailed(false);
   }, [user?.avatarUri]);
@@ -160,7 +162,8 @@ export default function ProfileScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      allowsEditing: false,
+      allowsEditing: true,
+      aspect: [1, 1],
       quality: 0.9,
     });
     if (!result.canceled && result.assets[0]) {
@@ -173,6 +176,7 @@ export default function ProfileScreen() {
         return;
       }
       setPendingAvatar(pickedImage);
+      setPreviewFitMode(user?.avatarResizeMode || "cover");
       setShowAvatarPreview(true);
     }
   };
@@ -181,7 +185,7 @@ export default function ProfileScreen() {
     if (!pendingAvatar || savingAvatar) return;
     setSavingAvatar(true);
     try {
-      await updateProfile({ avatarUri: pendingAvatar.uri });
+      await updateProfile({ avatarUri: pendingAvatar.uri, avatarResizeMode: previewFitMode });
       setAvatarLoadFailed(false);
       setShowAvatarPreview(false);
       setPendingAvatar(null);
@@ -274,7 +278,7 @@ export default function ProfileScreen() {
       fontSize: 24,
       fontWeight: "700" as const,
       fontFamily: "Inter_700Bold",
-      color: "#fff",
+      color: isDark ? "#FFFFFF" : colors.foreground,
       marginBottom: 20,
     },
     avatarCenteredWrap: {
@@ -289,12 +293,12 @@ export default function ProfileScreen() {
       width: 88,
       height: 88,
       borderRadius: 28,
-      backgroundColor: isDark ? "rgba(248,250,247,0.08)" : "rgba(255,255,255,0.72)",
+      backgroundColor: isDark ? "rgba(255, 255, 255, 0.08)" : "#FFFFFF",
       alignItems: "center",
       justifyContent: "center",
       overflow: "hidden",
       borderWidth: 2,
-      borderColor: "rgba(255,255,255,0.3)",
+      borderColor: colors.border,
     },
     avatarImage: {
       width: 84,
@@ -329,9 +333,9 @@ export default function ProfileScreen() {
       fontSize: 22,
       fontWeight: "700" as const,
       fontFamily: "Inter_700Bold",
-      color: "#fff",
+      color: isDark ? "#FFFFFF" : colors.foreground,
       borderBottomWidth: 1.5,
-      borderBottomColor: "rgba(255,255,255,0.5)",
+      borderBottomColor: colors.primary,
       paddingBottom: 2,
       textAlign: "center",
       minWidth: 160,
@@ -340,14 +344,14 @@ export default function ProfileScreen() {
       fontSize: 22,
       fontWeight: "700" as const,
       fontFamily: "Inter_700Bold",
-      color: "#fff",
+      color: isDark ? "#FFFFFF" : colors.foreground,
       textAlign: "center",
     },
     editNameBtnCentered: {
       width: 28,
       height: 28,
       borderRadius: 8,
-      backgroundColor: "rgba(255,255,255,0.15)",
+      backgroundColor: isDark ? "rgba(255, 255, 255, 0.15)" : "rgba(0, 102, 255, 0.08)",
       alignItems: "center",
       justifyContent: "center",
     },
@@ -355,7 +359,7 @@ export default function ProfileScreen() {
       fontSize: 14,
       fontWeight: "600" as const,
       fontFamily: "Inter_600SemiBold",
-      color: isDark ? "#5EEAD4" : "#115E59",
+      color: colors.primary,
       textAlign: "center",
       marginBottom: 4,
     },
@@ -363,7 +367,7 @@ export default function ProfileScreen() {
       fontSize: 13,
       fontWeight: "400" as const,
       fontFamily: "Inter_400Regular",
-      color: isDark ? "rgba(248,250,247,0.72)" : "rgba(23,33,31,0.70)",
+      color: colors.mutedForeground,
       textAlign: "center",
     },
     section: {
@@ -383,7 +387,7 @@ export default function ProfileScreen() {
       paddingBottom: 8,
     },
     scrollContent: {
-      paddingBottom: Platform.OS === "web" ? 34 + 84 : insets.bottom + 84,
+      paddingBottom: bottomInset(insets.bottom),
     },
     modalBackdrop: {
       flex: 1,
@@ -567,6 +571,7 @@ export default function ProfileScreen() {
                   <Image 
                     source={{ uri: user.avatarUri }} 
                     style={styles.avatarImage} 
+                    resizeMode={user.avatarResizeMode || "cover"}
                     onError={() => setAvatarLoadFailed(true)}
                   />
                 ) : (
@@ -759,9 +764,43 @@ export default function ProfileScreen() {
                 <Image
                   source={{ uri: pendingAvatar.uri }}
                   style={styles.avatarPreviewImage}
-                  resizeMode="cover"
+                  resizeMode={previewFitMode}
                 />
               )}
+            </View>
+
+            {/* Image Size / Frame Adjustment Control */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, marginVertical: 12 }}>
+              <TouchableOpacity
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 12,
+                  backgroundColor: previewFitMode === "cover" ? colors.primary : colors.muted,
+                  borderWidth: 1,
+                  borderColor: previewFitMode === "cover" ? colors.primary : colors.border,
+                }}
+                onPress={() => setPreviewFitMode("cover")}
+              >
+                <Text style={{ fontSize: 12, fontWeight: "600", fontFamily: "Inter_600SemiBold", color: previewFitMode === "cover" ? "#fff" : colors.foreground }}>
+                  Fill Frame (Cover)
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 12,
+                  backgroundColor: previewFitMode === "contain" ? colors.primary : colors.muted,
+                  borderWidth: 1,
+                  borderColor: previewFitMode === "contain" ? colors.primary : colors.border,
+                }}
+                onPress={() => setPreviewFitMode("contain")}
+              >
+                <Text style={{ fontSize: 12, fontWeight: "600", fontFamily: "Inter_600SemiBold", color: previewFitMode === "contain" ? "#fff" : colors.foreground }}>
+                  Fit Entire Image (Contain)
+                </Text>
+              </TouchableOpacity>
             </View>
 
             {!!pendingAvatar?.width && !!pendingAvatar?.height && (

@@ -86,7 +86,7 @@ export default function ReceivablesSummaryCard({ onOpenAdd }: ReceivablesSummary
                 : ["#FEF2F2", "#FFF5F5"]
               : isDark
               ? ["#102a24", "#0a1815"]
-              : ["#E8F3EF", "#FFFFFF"]
+              : ["#F0F7FF", "#FFFFFF"]
           }
           style={[
             styles.card,
@@ -104,7 +104,7 @@ export default function ReceivablesSummaryCard({ onOpenAdd }: ReceivablesSummary
         >
           <View style={styles.topRow}>
             <View style={styles.heroHeader}>
-              <Text style={styles.heroBadgeText}>POST-PURCHASE MONEY RECOVERY</Text>
+              <Text style={[styles.heroBadgeText, { color: colors.primary }]}>POST-PURCHASE MONEY RECOVERY</Text>
               <Text style={[styles.heroAmount, { color: colors.foreground }]}>
                 💰 ₹{totalAmount.toLocaleString("en-IN")}
               </Text>
@@ -198,7 +198,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     fontFamily: "Inter_700Bold",
-    color: "#0F766E",
     letterSpacing: 0.6,
     marginBottom: 4,
   },

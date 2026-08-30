@@ -171,7 +171,7 @@ export async function scheduleDailyExpenseReminder(hour: number, minute: number)
       body: "Tap to quickly add today's spends.",
       data: {
         notificationType: DAILY_REMINDER_TYPE,
-        deepLink: "/(tabs)/index?openAdd=1",
+        deepLink: "/?openAdd=1",
         openAdd: true,
       },
     },
