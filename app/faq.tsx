@@ -20,6 +20,7 @@ import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { db } from "@/lib/firebase";
+import SupportModal from "@/components/SupportModal";
 
 const FAQS = [
   {
@@ -156,75 +157,10 @@ export default function FAQScreen() {
       </ScrollView>
 
       {/* Support Composer Modal */}
-      <Modal
+      <SupportModal
         visible={modalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === "ios" ? "padding" : "height"} 
-          style={styles.modalOverlay}
-        >
-          <View style={[styles.modalContent, { backgroundColor: colors.background, borderColor: colors.border }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.foreground }]}>New Support Ticket</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Feather name="x" size={20} color={colors.foreground} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView showsVerticalScrollIndicator={false} style={{ width: '100%' }}>
-              <Text style={[styles.inputLabel, { color: colors.foreground }]}>Subject</Text>
-              <TextInput
-                style={[styles.textInput, { 
-                  color: colors.foreground, 
-                  borderColor: colors.border,
-                  backgroundColor: colors.muted 
-                }]}
-                placeholder="Brief summary of the issue..."
-                placeholderTextColor={colors.mutedForeground}
-                value={subject}
-                onChangeText={setSubject}
-                editable={!sending}
-              />
-
-              <Text style={[styles.inputLabel, { color: colors.foreground, marginTop: 16 }]}>Message Details</Text>
-              <TextInput
-                style={[styles.textInput, styles.textArea, { 
-                  color: colors.foreground, 
-                  borderColor: colors.border,
-                  backgroundColor: colors.muted 
-                }]}
-                placeholder="Please describe your issue or feedback in detail..."
-                placeholderTextColor={colors.mutedForeground}
-                value={message}
-                onChangeText={setMessage}
-                multiline={true}
-                numberOfLines={6}
-                textAlignVertical="top"
-                editable={!sending}
-              />
-
-              <TouchableOpacity
-                style={[styles.submitBtn, { backgroundColor: colors.primary }]}
-                onPress={handleSubmitSupport}
-                disabled={sending}
-                activeOpacity={0.8}
-              >
-                {sending ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <>
-                    <Feather name="send" size={16} color="#fff" style={{ marginRight: 8 }} />
-                    <Text style={styles.submitBtnText}>Submit Ticket</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        onClose={() => setModalVisible(false)}
+      />
     </View>
   );
 }

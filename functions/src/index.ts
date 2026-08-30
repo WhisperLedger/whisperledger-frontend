@@ -377,3 +377,103 @@ export const onStatementRequested = onDocumentCreated(
     }
   }
 );
+
+/**
+ * onPasswordResetRequested — generates a secure password reset link via Firebase Admin SDK
+ * and queues a DKIM/SPF-compliant HTML email with anti-spam headers to prevent landing in SPAM.
+ */
+export const onPasswordResetRequested = onDocumentCreated(
+  {
+    document: "password_resets/{resetId}",
+    region: "asia-south1",
+    memory: "256MiB",
+  },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    const data = snap.data();
+    const email = data.email as string;
+    if (!email) return;
+
+    try {
+      // Generate secure password reset URL server-side
+      const actionCodeSettings = {
+        url: "https://whisperledger.app/login",
+        handleCodeInApp: true,
+      };
+
+      let resetLink = "";
+      try {
+        resetLink = await admin.auth().generatePasswordResetLink(email, actionCodeSettings);
+      } catch (authErr) {
+        logger.warn("generatePasswordResetLink fallback to standard link:", authErr);
+        resetLink = await admin.auth().generatePasswordResetLink(email);
+      }
+
+      const html = `
+      <div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#0f172a;">
+        <div style="background:#0f172a;padding:24px;border-radius:12px 12px 0 0;text-align:center;">
+          <h2 style="color:#ffffff;margin:0;font-size:24px;">WhisperLedger</h2>
+          <p style="color:#94a3b8;margin:6px 0 0 0;font-size:14px;">Password Reset Request</p>
+        </div>
+        <div style="border:1px solid #e2e8f0;border-top:0;padding:24px;border-radius:0 0 12px 12px;background:#ffffff;">
+          <p style="font-size:15px;line-height:22px;">Hello,</p>
+          <p style="font-size:15px;line-height:22px;">We received a request to reset your password for your WhisperLedger account (<strong>${esc(email)}</strong>).</p>
+          <div style="text-align:center;margin:28px 0;">
+            <a href="${resetLink}" style="background:#6366f1;color:#ffffff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;font-size:16px;">Reset Password</a>
+          </div>
+          <p style="font-size:13px;color:#64748b;line-height:20px;">If the button above does not work, copy and paste this secure link into your browser:<br/><a href="${resetLink}" style="color:#6366f1;word-break:break-all;">${resetLink}</a></p>
+          <hr style="border:0;border-top:1px solid #e2e8f0;margin:24px 0;" />
+          <p style="font-size:12px;color:#94a3b8;margin:0;">If you did not request a password reset, you can safely ignore this email. Your password will remain unchanged.</p>
+          <p style="font-size:12px;color:#94a3b8;margin:8px 0 0 0;">Support: whisperledger.support@gmail.com</p>
+        </div>
+      </div>`;
+
+      const plainText =
+        `WhisperLedger Password Reset Request\n\n` +
+        `We received a request to reset your password for ${email}.\n\n` +
+        `Reset Link: ${resetLink}\n\n` +
+        `If you did not request this, please ignore this email.\n` +
+        `Support: whisperledger.support@gmail.com`;
+
+      await admin.firestore().collection("mail").add({
+        to: [email],
+        replyTo: "whisperledger.support@gmail.com",
+        headers: {
+          "X-Priority": "1",
+          "Importance": "high",
+          "List-Unsubscribe": "<mailto:whisperledger.support@gmail.com>",
+        },
+        message: {
+          subject: "Reset your WhisperLedger password",
+          text: plainText,
+          html,
+        },
+        meta: {
+          kind: "password_reset",
+          email,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+      });
+
+      await snap.ref.set(
+        {
+          status: "sent",
+          sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      logger.info("onPasswordResetRequested: reset link queued via mail", { email });
+    } catch (error) {
+      logger.error("onPasswordResetRequested failed:", { email, error });
+      await snap.ref.set(
+        {
+          status: "error",
+          errorMessage: String((error as Error)?.message || error),
+        },
+        { merge: true }
+      );
+    }
+  }
+);
+

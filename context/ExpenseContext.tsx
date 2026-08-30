@@ -85,6 +85,7 @@ export interface Expense {
   categoryId: CategoryId;
   paymentMode?: PaymentMode;
   note: string;
+  merchant?: string;
   date: string; // ISO date string YYYY-MM-DD
   createdAt: number;
   smsId?: string;
@@ -188,7 +189,7 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
                 if (deletedIds.includes(e.smsId)) continue;
                 if (expenses.some((existing) => existing.smsId === e.smsId)) continue;
                 
-                await scheduleSMSApprovalNotification(e.amount, e.merchant, e.smsId);
+                await scheduleSMSApprovalNotification(e);
               }
             }
             await AsyncStorage.setItem("@last_sms_sync_time", Date.now().toString());

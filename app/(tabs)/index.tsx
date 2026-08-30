@@ -17,6 +17,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 
 import AddExpenseModal from "@/components/AddExpenseModal";
+import AddReceivableModal from "@/components/AddReceivableModal";
+import ReceivablesSummaryCard from "@/components/ReceivablesSummaryCard";
 import ExpenseItem from "@/components/ExpenseItem";
 import { useAuth } from "@/context/AuthContext";
 import { CATEGORIES, CategoryId, Expense, useExpenses } from "@/context/ExpenseContext";
@@ -58,6 +60,7 @@ export default function HomeScreen() {
 
   const [selectedDate, setSelectedDate] = useState(todayISO());
   const [showAdd, setShowAdd] = useState(false);
+  const [showAddReceivable, setShowAddReceivable] = useState(false);
   const [editExpense, setEditExpense] = useState<Expense | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -330,6 +333,9 @@ export default function HomeScreen() {
         </View>
       </LinearGradient>
 
+      {/* Money Recovery Hero Card */}
+      <ReceivablesSummaryCard onOpenAdd={() => setShowAddReceivable(true)} />
+
       {/* Week Strip */}
       <View style={styles.weekStrip}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 8 }}>
@@ -456,6 +462,11 @@ export default function HomeScreen() {
         onClose={() => { setShowAdd(false); setEditExpense(null); }}
         defaultDate={selectedDate}
         editExpense={editExpense}
+      />
+
+      <AddReceivableModal
+        visible={showAddReceivable}
+        onClose={() => setShowAddReceivable(false)}
       />
     </View>
   );

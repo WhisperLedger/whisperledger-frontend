@@ -13,6 +13,7 @@ import {
 
 import { CATEGORIES, Expense, useExpenses } from "@/context/ExpenseContext";
 import { useColors } from "@/hooks/useColors";
+import MerchantLogo from "@/components/MerchantLogo";
 
 interface Props {
   expense: Expense;
@@ -185,11 +186,17 @@ export default function ExpenseItem({ expense, onEdit }: Props) {
     );
   };
 
+  const merchantName = expense.merchant || expense.note || "";
+
   return (
     <Animated.View style={[styles.container, { transform: [{ scale: scaleAnim }] }]}>
-      <View style={styles.iconWrap}>
-        <Feather name={cat.icon as any} size={22} color={cat.color} />
-      </View>
+      {merchantName ? (
+        <MerchantLogo merchant={merchantName} size={46} borderRadius={14} />
+      ) : (
+        <View style={styles.iconWrap}>
+          <Feather name={cat.icon as any} size={22} color={cat.color} />
+        </View>
+      )}
 
       <View style={styles.info}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>

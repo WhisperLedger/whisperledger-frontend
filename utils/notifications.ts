@@ -3,6 +3,7 @@ import Constants from "expo-constants";
 import { Platform } from "react-native";
 import { collection, doc, setDoc } from "firebase/firestore";
 
+import type { CategoryId, PaymentMode } from "@/context/ExpenseContext";
 import { db } from "@/lib/firebase";
 
 export const SMS_APPROVAL_CATEGORY = "sms_approval";
@@ -14,6 +15,16 @@ export enum SMSAction {
   APPROVE = "approve",
   DISCARD = "discard",
 }
+
+export type SMSApprovalPayload = {
+  amount: number;
+  merchant: string;
+  smsId: string;
+  date: string;
+  categoryId: CategoryId;
+  paymentMode: PaymentMode;
+  note: string;
+};
 
 function getNotificationsModule() {
   try {
@@ -47,6 +58,10 @@ export async function setupNotifications() {
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#4f46e5",
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      showBadge: true,
+      enableVibrate: true,
+      enableLights: true,
     });
     await Notifications.setNotificationChannelAsync("budget_alerts", {
       name: "Budget Alerts",
@@ -71,16 +86,16 @@ export async function requestNotificationPermissions() {
   return finalStatus === "granted";
 }
 
-export async function scheduleSMSApprovalNotification(amount: number, merchant: string, smsId: string) {
+export async function scheduleSMSApprovalNotification(transaction: SMSApprovalPayload) {
   const Notifications = getNotificationsModule();
   if (!Notifications) return;
 
   await Notifications.scheduleNotificationAsync({
     content: {
       title: "New Transaction Detected",
-      body: `Spent Rs ${amount} at ${merchant}. Approve?`,
+      body: `Spent Rs ${transaction.amount} at ${transaction.merchant}. Approve?`,
       categoryIdentifier: SMS_APPROVAL_CATEGORY,
-      data: { smsId, amount, merchant, notificationType: SMS_APPROVAL_TYPE },
+      data: { ...transaction, notificationType: SMS_APPROVAL_TYPE },
     },
     trigger: null,
   });

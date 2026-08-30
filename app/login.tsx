@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import React, { useState, useEffect, useRef } from "react";
 import {
   ActivityIndicator,
@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
+import { validateEmail } from "@/utils/validation";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -72,12 +73,19 @@ function translateAuthError(rawError: string | object): string {
   
   const errorString = typeof rawError === "object" ? JSON.stringify(rawError) : String(rawError);
   const msg = errorString.toLowerCase();
+
+  if (errorString.length > 20 && !msg.includes("auth/") && !msg.includes("firebase")) {
+    return errorString;
+  }
   
   if (msg.includes("developer_error") || msg.includes("developer-error")) {
-    return "Google Sign-In configuration is pending. Please verify that your local SHA-1 fingerprint is whitelisted in your Firebase Console settings.";
+    return "Google SSO requires adding your APK SHA-1 fingerprint (5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25) to Firebase Console > Project Settings.";
+  }
+  if (msg.includes("email_not_verified") || msg.includes("email not verified")) {
+    return "Email Not Verified 📩\nPlease check your inbox and click the verification link sent to your email address before logging in.";
   }
   if (msg.includes("invalid-credential") || msg.includes("wrong-password") || msg.includes("user-not-found") || msg.includes("auth/invalid-credential")) {
-    return "Incorrect email or password. Please double check and try again.";
+    return "Incorrect username/email or password. If you don't have an account yet, tap 'Create one' below to register!";
   }
   if (msg.includes("invalid-email")) {
     return "Please enter a valid email address.";
@@ -89,7 +97,7 @@ function translateAuthError(rawError: string | object): string {
     return "This email address is already registered. Please sign in instead.";
   }
   if (msg.includes("weak-password")) {
-    return "Password is too weak. Please use at least 6 characters.";
+    return "Password is too weak. Must be at least 8 characters.";
   }
   if (msg.includes("network-request-failed") || msg.includes("network_error")) {
     return "Connection error. Please check your internet connection and try again.";
@@ -101,7 +109,7 @@ function translateAuthError(rawError: string | object): string {
     return "Sign-in was cancelled.";
   }
   
-  return "Unable to sign in. Please verify your credentials and try again.";
+  return "Unable to sign in. Please verify your credentials or tap 'Create one' to sign up.";
 }
 
 export default function LoginScreen() {
@@ -143,6 +151,14 @@ export default function LoginScreen() {
   // Gesture refs for onboarding swiping
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
+
+  const params = useLocalSearchParams<{ email?: string; verificationSent?: string }>();
+
+  useEffect(() => {
+    if (params.email) {
+      setUsername(params.email);
+    }
+  }, [params.email]);
 
   useEffect(() => {
     // Check if the user has already completed onboarding
@@ -331,12 +347,16 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     setError("");
-    if (!username.trim() || !password.trim()) {
-      setError("Please fill in all fields");
+    const cleanUsername = username.trim();
+    const cleanPassword = password.trim();
+
+    if (!cleanUsername || !cleanPassword) {
+      setError("Please enter both username/email and password.");
       return;
     }
+
     setLoading(true);
-    const result = await login(username.trim(), password);
+    const result = await login(cleanUsername, cleanPassword);
     setLoading(false);
     if (result.success) {
       router.replace("/(tabs)");
@@ -354,12 +374,21 @@ export default function LoginScreen() {
 
   const handleSendReset = async () => {
     setForgotError("");
-    if (!forgotEmail.trim()) {
-      setForgotError("Please enter your email address");
+    const cleanEmail = forgotEmail.trim().toLowerCase();
+
+    if (!cleanEmail) {
+      setForgotError("Please enter your email address.");
       return;
     }
+
+    const emailCheck = validateEmail(cleanEmail);
+    if (!emailCheck.isValid) {
+      setForgotError(emailCheck.error || "Invalid email format.");
+      return;
+    }
+
     setForgotLoading(true);
-    const res = await forgotPassword(forgotEmail.trim());
+    const res = await forgotPassword(cleanEmail);
     setForgotLoading(false);
     if (res.success) {
       setForgotSuccess(true);
@@ -911,9 +940,6 @@ export default function LoginScreen() {
                 style={[
                   styles.logoWrap,
                   {
-                    backgroundColor: colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.15)" : "rgba(99, 102, 241, 0.08)",
-                    borderWidth: colors.text === "#f8fafc" ? 1 : 0,
-                    borderColor: "rgba(99, 102, 241, 0.25)",
                     transform: [
                       { scale: loginLogoScale },
                       {
@@ -928,21 +954,58 @@ export default function LoginScreen() {
               >
                 <Image
                   source={require("../assets/images/icon.png")}
-                  style={{ width: 44, height: 44, borderRadius: 12 }}
+                  style={{ width: 64, height: 64, borderRadius: 16 }}
                 />
               </Animated.View>
               <Text style={styles.heading}>Welcome back</Text>
               <Text style={styles.subheading}>Track your spending with clarity</Text>
 
+              {params.verificationSent === "true" && (
+                <View
+                  style={{
+                    backgroundColor: "rgba(16, 185, 129, 0.12)",
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: "rgba(16, 185, 129, 0.3)",
+                    padding: 14,
+                    marginBottom: 16,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 12,
+                      backgroundColor: "rgba(16, 185, 129, 0.2)",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Feather name="mail" size={20} color="#10b981" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: "700", color: "#10b981", fontFamily: "Inter_700Bold" }}>
+                      Verification Email Sent! 📩
+                    </Text>
+                    <Text style={{ fontSize: 12, color: colors.foreground, fontFamily: "Inter_400Regular", marginTop: 2, lineHeight: 16 }}>
+                      We sent a verification link to <Text style={{ fontWeight: "700", color: "#6366f1" }}>{params.email}</Text>. Please open your inbox, click the link to verify, then sign in below.
+                    </Text>
+                  </View>
+                </View>
+              )}
+
               <View style={styles.card}>
-                <Text style={[styles.label, { marginTop: 0 }]}>USERNAME</Text>
+                <Text style={[styles.label, { marginTop: 0 }]}>EMAIL / USERNAME</Text>
                 <View style={styles.inputWrap}>
                   <Feather name="user" size={16} color={colors.mutedForeground} style={{ marginRight: 8 }} />
                   <TextInput
                     style={styles.input}
                     value={username}
                     onChangeText={setUsername}
-                    placeholder="Enter your username"
+                    placeholder="Enter your email or username"
                     placeholderTextColor={colors.mutedForeground}
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -963,13 +1026,27 @@ export default function LoginScreen() {
                     returnKeyType="done"
                     onSubmitEditing={handleLogin}
                   />
-                  <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPwd((p) => !p)}>
+                  <TouchableOpacity
+                    style={[styles.eyeBtn, { opacity: password.length > 0 ? 1 : 0.3 }]}
+                    onPress={() => password.length > 0 && setShowPwd((p) => !p)}
+                    disabled={password.length === 0}
+                  >
                     <Feather name={showPwd ? "eye-off" : "eye"} size={16} color={colors.mutedForeground} />
                   </TouchableOpacity>
                 </View>
 
                 {/* Forgot Password Link */}
-                <TouchableOpacity style={styles.forgotBtn} onPress={handleForgotPassword} activeOpacity={0.7}>
+                <TouchableOpacity
+                  style={[styles.forgotBtn, { opacity: username.trim().length > 0 ? 1 : 0.4 }]}
+                  onPress={() => {
+                    if (!username.trim()) {
+                      setError("Please enter your email or username above first to reset password.");
+                      return;
+                    }
+                    handleForgotPassword();
+                  }}
+                  activeOpacity={0.7}
+                >
                   <Text style={styles.forgotBtnText}>Forgot password?</Text>
                 </TouchableOpacity>
 
@@ -981,9 +1058,9 @@ export default function LoginScreen() {
                 )}
 
                 <TouchableOpacity
-                  style={[styles.loginBtn, { opacity: loading ? 0.7 : 1 }]}
+                  style={[styles.loginBtn, { opacity: !username.trim() || !password.trim() || loading ? 0.4 : 1 }]}
                   onPress={handleLogin}
-                  disabled={loading}
+                  disabled={!username.trim() || !password.trim() || loading}
                   activeOpacity={0.85}
                 >
                   {loading ? (

@@ -563,12 +563,12 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
                   styles.saveBtn,
                   {
                     backgroundColor: selectedCat.color,
-                    opacity: saving || !amount || isFutureISODate(date) ? 0.5 : 1,
+                    opacity: saving || !amount || parseFloat(amount) <= 0 || isFutureISODate(date) ? 0.4 : 1,
                     marginBottom: Platform.OS === "ios" && keyboardHeight > 0 ? 10 : 14,
                   },
                 ]}
                 onPress={handleSave}
-                disabled={saving || !amount || isFutureISODate(date)}
+                disabled={saving || !amount || parseFloat(amount) <= 0 || isFutureISODate(date)}
                 activeOpacity={0.85}
               >
                 <Feather name={editExpense ? "check" : "plus"} size={18} color="#fff" />

@@ -28,6 +28,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ExpenseProvider } from "@/context/ExpenseContext";
+import { ReceivablesProvider } from "@/context/ReceivablesContext";
 import { BudgetProvider } from "@/context/BudgetContext";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { useColors } from "@/hooks/useColors";
@@ -71,6 +72,8 @@ if (Notifications) {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: true,
       shouldSetBadge: false,
     }),
@@ -236,10 +239,6 @@ function RootLayoutNav() {
         onSnapshot: fsOnSnapshot,
       } = require("firebase/firestore");
 
-      // Session start time — used client-side to ignore old notifications.
-      // We use a single-field orderBy (no composite index needed).
-      const sessionStartMs = Date.now() - 30000; // 30s back-window
-
       const q = fsQuery(
         fsCollection(db, `users/${user.uid}/notifications`),
         fsOrderBy("createdAt", "desc"),
@@ -252,33 +251,34 @@ function RootLayoutNav() {
             const data = change.doc.data();
             const docId = change.doc.id;
 
-            // Only fire for unread notifications created in this session window
-            const notifTime = typeof data.createdAt === "number"
-              ? data.createdAt
-              : data.createdAt?.toMillis?.() ?? 0;
-
-            const isNew = notifTime >= sessionStartMs;
-
-            if (!data.read && isNew && !processedNotifIds.has(docId)) {
+            if (!data.read && !processedNotifIds.has(docId)) {
               processedNotifIds.add(docId);
               try {
                 await Notifications.scheduleNotificationAsync({
                   content: {
                     title: data.title || "Notification",
                     body: data.body || "",
-                    data: { ...(data.data || {}), isLocalTriggered: true, firestoreNotifId: docId },
+                    data: {
+                      ...(data.data || {}),
+                      imageUrl: data.imageUrl,
+                      image: data.imageUrl,
+                      picture: data.imageUrl,
+                      bigPictureUrl: data.imageUrl,
+                      isLocalTriggered: true,
+                      firestoreNotifId: docId,
+                    },
+                    ...(data.imageUrl ? { attachments: [{ url: data.imageUrl, identifier: "image" }] } : {}),
                     sound: true,
                     priority: "max",
                     channelId: "default",
                   },
                   trigger: null,
                 });
-                console.log("[Notifications] Local notification fired for:", docId);
+                console.log("[Notifications] Heads-up push notification banner presented for:", docId);
               } catch (e) {
                 console.warn("[Notifications] Failed to schedule local notification:", e);
               }
             } else {
-              // Mark as seen so we don't re-process on next snapshot
               processedNotifIds.add(docId);
             }
           }
@@ -371,13 +371,12 @@ function RootLayoutNav() {
 
       if (actionIdentifier === SMSAction.APPROVE && user) {
         try {
-          const date = new Date().toISOString().split("T")[0];
           await addDoc(collection(db, `users/${user.uid}/expenses`), {
             amount,
-            note: `Auto-synced from SMS: ${merchant}`,
-            categoryId: classifyCategory(merchant),
-            paymentMode: "upi",
-            date,
+            note: data.note || `Auto-synced from SMS: ${merchant}`,
+            categoryId: data.categoryId || classifyCategory(String(merchant || "")),
+            paymentMode: data.paymentMode || "none",
+            date: data.date || new Date().toISOString().split("T")[0],
             smsId,
             createdAt: Date.now(),
           });
@@ -408,6 +407,7 @@ function RootLayoutNav() {
             <Stack.Screen name="login" options={{ headerShown: false, animation: "fade" }} />
             <Stack.Screen name="register" options={{ headerShown: false, animation: "slide_from_right" }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="recovery" options={{ headerShown: false, animation: "slide_from_right" }} />
             <Stack.Screen name="notifications" options={{ headerShown: false, presentation: "card" }} />
             <Stack.Screen name="about" options={{ presentation: "modal", headerShown: false }} />
             <Stack.Screen name="faq" options={{ presentation: "modal", headerShown: false }} />
@@ -427,70 +427,101 @@ function AnimatedSplashScreen({ onFinish, fontsLoaded }: { onFinish: () => void;
   const [minTimeElapsed, setMinTimeElapsed] = useState(false);
 
   // High-end zero-flicker seamless transition parameters
-  const logoScale = useRef(new Animated.Value(1.0)).current;
+  const logoScale = useRef(new Animated.Value(0.85)).current;
+  const logoOpacity = useRef(new Animated.Value(0)).current;
   const screenOpacity = useRef(new Animated.Value(1)).current;
-  
-  // Creative thin linear progress bar animation
+  const auraPulse = useRef(new Animated.Value(1)).current;
   const progressWidth = useRef(new Animated.Value(0)).current;
 
-  // Start progress bar animation and minimum display timer on mount
   useEffect(() => {
-    Animated.timing(progressWidth, {
-      toValue: 1,
-      duration: 700,
-      easing: Easing.bezier(0.25, 0.1, 0.25, 1.0), // Butter-smooth cubic easing
-      useNativeDriver: false,
-    }).start();
+    // Entrance animations
+    Animated.parallel([
+      Animated.spring(logoScale, {
+        toValue: 1,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+      Animated.timing(logoOpacity, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+      Animated.timing(progressWidth, {
+        toValue: 1,
+        duration: 800,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+    ]).start();
+
+    // Pulse aura animation
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(auraPulse, {
+          toValue: 1.12,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(auraPulse, {
+          toValue: 1,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse.start();
 
     const timer = setTimeout(() => {
       setMinTimeElapsed(true);
-    }, 600); // 600ms minimum display to show the gorgeous brand mark
+    }, 700);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      pulse.stop();
+    };
   }, []);
 
-  // Gracefully transition as soon as fonts are loaded, auth checks complete, AND minimum display time elapsed
   useEffect(() => {
     if (!isLoading && fontsLoaded && minTimeElapsed && !isFadingOut) {
       setIsFadingOut(true);
       Animated.parallel([
         Animated.timing(logoScale, {
-          toValue: 0.96,
-          duration: 280,
+          toValue: 0.95,
+          duration: 250,
           useNativeDriver: true,
         }),
         Animated.timing(screenOpacity, {
           toValue: 0,
           duration: 250,
           useNativeDriver: true,
-        })
+        }),
       ]).start(() => {
         onFinish();
       });
     }
   }, [isLoading, fontsLoaded, minTimeElapsed, isFadingOut]);
 
-  // Premium rapid transition safety timeout (1.5s) to guarantee instantaneous load feel
   useEffect(() => {
     const timer = setTimeout(() => {
       if (!isFadingOut) {
         setIsFadingOut(true);
         Animated.parallel([
           Animated.timing(logoScale, {
-            toValue: 0.96,
-            duration: 280,
+            toValue: 0.95,
+            duration: 250,
             useNativeDriver: true,
           }),
           Animated.timing(screenOpacity, {
             toValue: 0,
             duration: 250,
             useNativeDriver: true,
-          })
+          }),
         ]).start(() => {
           onFinish();
         });
       }
-    }, 1500);
+    }, 1600);
 
     return () => clearTimeout(timer);
   }, [isFadingOut]);
@@ -502,29 +533,70 @@ function AnimatedSplashScreen({ onFinish, fontsLoaded }: { onFinish: () => void;
 
   return (
     <Animated.View style={[splashStyles.splashContainer, { opacity: screenOpacity }]}>
-      <View style={[
-        splashStyles.splashBackground, 
-        { backgroundColor: "#050814" } // ALWAYS DARK: perfectly matches native splash, zero dark/light flashing!
-      ]}>
+      <LinearGradient
+        colors={["#0B0D18", "#1E1B4B", "#050711"]}
+        style={splashStyles.splashBackground}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        {/* Ambient Glowing Aura */}
+        <Animated.View
+          style={[
+            splashStyles.auraGlow,
+            { transform: [{ scale: auraPulse }] },
+          ]}
+        />
+
         <View style={splashStyles.splashCenterWrap}>
-          <Animated.View style={[
-            splashStyles.splashLogoWrap, 
-            { 
-              transform: [{ scale: logoScale }]
-            }
-          ]}>
-            <Image source={require("../assets/images/icon.png")} style={splashStyles.splashLogoImage} />
+          {/* Logo Card */}
+          <Animated.View
+            style={[
+              splashStyles.splashLogoWrap,
+              {
+                opacity: logoOpacity,
+                transform: [{ scale: logoScale }],
+              },
+            ]}
+          >
+            <Image
+              source={require("../assets/images/splash.png")}
+              style={splashStyles.splashLogoImage}
+            />
           </Animated.View>
-          
-          {/* Creative, super-thin glowing linear progress bar */}
+
+          {/* Typography */}
+          <Animated.Text style={[splashStyles.brandTitle, { opacity: logoOpacity }]}>
+            WhisperLedger
+          </Animated.Text>
+
+          <Animated.Text style={[splashStyles.brandTagline, { opacity: logoOpacity }]}>
+            POST-PURCHASE MONEY RECOVERY AGENT
+          </Animated.Text>
+
+          {/* Feature Badge Chips */}
+          <Animated.View style={[splashStyles.featureChipsRow, { opacity: logoOpacity }]}>
+            <View style={splashStyles.featureChip}>
+              <Text style={splashStyles.featureChipText}>💰 Money Recovery</Text>
+            </View>
+            <View style={splashStyles.featureChip}>
+              <Text style={splashStyles.featureChipText}>🔒 Zero-Knowledge</Text>
+            </View>
+            <View style={splashStyles.featureChip}>
+              <Text style={splashStyles.featureChipText}>⚡ SMS Auto-Sync</Text>
+            </View>
+          </Animated.View>
+
+          {/* Glowing Shimmer Progress Bar */}
           <View style={splashStyles.progressContainer}>
             <View style={splashStyles.progressTrack}>
-              <Animated.View style={[
-                splashStyles.progressFill,
-                { width: animatedProgressWidth }
-              ]}>
+              <Animated.View
+                style={[
+                  splashStyles.progressFill,
+                  { width: animatedProgressWidth },
+                ]}
+              >
                 <LinearGradient
-                  colors={["#6366f1", "#14b8a6"]} // Indigo to Teal premium tech gradient
+                  colors={["#6366f1", "#10b981"]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={StyleSheet.absoluteFill}
@@ -532,8 +604,13 @@ function AnimatedSplashScreen({ onFinish, fontsLoaded }: { onFinish: () => void;
               </Animated.View>
             </View>
           </View>
+
+          <View style={splashStyles.privacyPill}>
+            <Text style={splashStyles.privacyDot}>●</Text>
+            <Text style={splashStyles.privacyText}>100% PRIVATE & OFFLINE</Text>
+          </View>
         </View>
-      </View>
+      </LinearGradient>
     </Animated.View>
   );
 }
@@ -548,38 +625,111 @@ const splashStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  auraGlow: {
+    position: "absolute",
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: "rgba(99, 102, 241, 0.18)",
+  },
   splashCenterWrap: {
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 32,
   },
   splashLogoWrap: {
-    width: 110,
-    height: 110,
+    width: 104,
+    height: 104,
+    borderRadius: 26,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(99, 102, 241, 0.4)",
+    marginBottom: 20,
+    shadowColor: "#6366f1",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 12,
   },
   splashLogoImage: {
-    width: 100,
-    height: 100,
-    resizeMode: "contain",
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  brandTitle: {
+    fontSize: 34,
+    fontFamily: "Inter_700Bold",
+    color: "#F8FAFC",
+    letterSpacing: -0.5,
+    marginBottom: 6,
+  },
+  brandTagline: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    color: "#818CF8",
+    letterSpacing: 1.2,
+    marginBottom: 20,
+  },
+  featureChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 32,
+  },
+  featureChip: {
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  featureChipText: {
+    color: "#CBD5E1",
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
   },
   progressContainer: {
-    width: 100,
-    height: 3,
-    marginTop: 24,
+    width: 160,
+    height: 4,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 28,
   },
   progressTrack: {
-    width: 80,
-    height: 2.5,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-    borderRadius: 1.5,
+    width: "100%",
+    height: 3,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 2,
     overflow: "hidden",
   },
   progressFill: {
     height: "100%",
-    borderRadius: 1.5,
+    borderRadius: 2,
+  },
+  privacyPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(16, 185, 129, 0.12)",
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(16, 185, 129, 0.25)",
+  },
+  privacyDot: {
+    color: "#10B981",
+    fontSize: 10,
+    marginRight: 6,
+  },
+  privacyText: {
+    color: "#34D399",
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 0.6,
   },
 });
 
@@ -621,21 +771,23 @@ export default function RootLayout() {
           <ThemeProvider>
             <AuthProvider>
               <ExpenseProvider>
-                <BudgetProvider>
-                  <GestureHandlerRootView style={{ flex: 1 }}>
-                    {resolvedLoaded ? (
-                      <RootLayoutNav />
-                    ) : (
-                      <View style={{ flex: 1, backgroundColor: "#FFFFFF" }} />
-                    )}
-                    {!splashFinished && (
-                      <AnimatedSplashScreen 
-                        onFinish={() => setSplashFinished(true)} 
-                        fontsLoaded={resolvedLoaded}
-                      />
-                    )}
-                  </GestureHandlerRootView>
-                </BudgetProvider>
+                <ReceivablesProvider>
+                  <BudgetProvider>
+                    <GestureHandlerRootView style={{ flex: 1 }}>
+                      {resolvedLoaded ? (
+                        <RootLayoutNav />
+                      ) : (
+                        <View style={{ flex: 1, backgroundColor: "#FFFFFF" }} />
+                      )}
+                      {!splashFinished && (
+                        <AnimatedSplashScreen 
+                          onFinish={() => setSplashFinished(true)} 
+                          fontsLoaded={resolvedLoaded}
+                        />
+                      )}
+                    </GestureHandlerRootView>
+                  </BudgetProvider>
+                </ReceivablesProvider>
               </ExpenseProvider>
             </AuthProvider>
           </ThemeProvider>
@@ -644,4 +796,3 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 }
-

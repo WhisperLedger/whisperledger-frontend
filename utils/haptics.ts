@@ -1,7 +1,7 @@
 import * as Haptics from "expo-haptics";
 
 export const safeHaptics = {
-  impactAsync: (style: Haptics.ImpactFeedbackStyle) => {
+  impactAsync: (style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) => {
     try {
       Haptics.impactAsync(style).catch((e) => {
         console.warn("Haptics impactAsync failed:", e);
@@ -19,7 +19,7 @@ export const safeHaptics = {
       console.warn("Haptics selectionAsync call failed:", err);
     }
   },
-  notificationAsync: (type: Haptics.NotificationFeedbackType) => {
+  notificationAsync: (type: Haptics.NotificationFeedbackType = Haptics.NotificationFeedbackType.Success) => {
     try {
       Haptics.notificationAsync(type).catch((e) => {
         console.warn("Haptics notificationAsync failed:", e);

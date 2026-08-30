@@ -1,11 +1,12 @@
 import { PermissionsAndroid, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { CategoryId, PaymentMode } from "@/context/ExpenseContext";
+import type { CategoryId, PaymentMode } from "@/context/ExpenseContext";
 
 let SmsAndroid: any = null;
 try {
   // @ts-ignore
-  SmsAndroid = require("react-native-get-sms-android").default;
+  const smsModule = require("react-native-get-sms-android");
+  SmsAndroid = smsModule?.default ?? smsModule;
 } catch (e) {
   console.warn("react-native-get-sms-android not available in this environment.");
 }
@@ -20,10 +21,27 @@ export interface ParsedSMS {
   smsId: string;
 }
 
-export async function requestSmsPermission(): Promise<boolean> {
-  if (!SmsAndroid) return false;
+export function isSmsAutoSyncAvailable(): boolean {
+  return Platform.OS === "android" && !!SmsAndroid?.list;
+}
+
+export async function hasSmsPermission(): Promise<boolean> {
   if (Platform.OS !== "android") return false;
+  return PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS);
+}
+
+export async function requestSmsPermission(): Promise<boolean> {
+  if (Platform.OS !== "android") return false;
+
+  if (!SmsAndroid?.list) {
+    console.warn("SMS library not found. Use an Android development/production build with react-native-get-sms-android linked.");
+    return false;
+  }
+
   try {
+    const existing = await hasSmsPermission();
+    if (existing) return true;
+
     const granted = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.READ_SMS,
       {
@@ -46,8 +64,8 @@ export async function fetchAndParseSMS(minDateMs: number): Promise<ParsedSMS[]> 
     return [];
   }
 
-  if (!SmsAndroid) {
-    console.warn("SMS library not found. Ensure react-native-get-sms-android is installed.");
+  if (!SmsAndroid?.list) {
+    console.warn("SMS library not found. Use an Android development/production build with react-native-get-sms-android linked.");
     return [];
   }
 

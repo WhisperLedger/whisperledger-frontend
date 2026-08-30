@@ -12,6 +12,7 @@ import {
   TouchableOpacity,
   View,
   Modal,
+  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -40,6 +41,7 @@ interface NotificationItem {
   read?: boolean;
   createdAt?: any;
   notificationType?: string;
+  imageUrl?: string;
 }
 
 function isPermissionDeniedError(error: unknown) {
@@ -48,6 +50,33 @@ function isPermissionDeniedError(error: unknown) {
   return (
     maybe.code === "permission-denied" ||
     (typeof maybe.message === "string" && maybe.message.toLowerCase().includes("insufficient permissions"))
+  );
+}
+
+function NotificationImage({ imageUrl }: { imageUrl: string }) {
+  const [hasError, setHasError] = useState(false);
+
+  if (!imageUrl || hasError) return null;
+
+  let finalUri = imageUrl.trim();
+  if (!finalUri.startsWith("http://") && !finalUri.startsWith("https://")) {
+    finalUri = "https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=800&auto=format&fit=crop&q=80";
+  }
+
+  return (
+    <Image
+      source={{ uri: finalUri }}
+      onError={() => setHasError(true)}
+      style={{
+        width: "100%",
+        height: 140,
+        borderRadius: 10,
+        marginTop: 8,
+        marginBottom: 6,
+        resizeMode: "cover",
+        backgroundColor: "rgba(255,255,255,0.05)",
+      }}
+    />
   );
 }
 
@@ -954,6 +983,7 @@ export default function NotificationsScreen() {
               >
                 <Text style={s.itemTitle}>{item.title || "Notification"}</Text>
                 <Text style={s.itemBody}>{item.body || ""}</Text>
+                {!!item.imageUrl && <NotificationImage imageUrl={item.imageUrl} />}
                 {!!item.notificationType && item.notificationType !== "admin_broadcast" && (
                   <Text style={s.itemMeta}>{item.notificationType}</Text>
                 )}

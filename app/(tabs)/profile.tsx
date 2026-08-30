@@ -18,11 +18,13 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
+import PrivacyConsentModal from "@/components/PrivacyConsentModal";
+import SupportModal from "@/components/SupportModal";
 
 import { useAuth } from "@/context/AuthContext";
 import { useExpenses } from "@/context/ExpenseContext";
 import { useColors } from "@/hooks/useColors";
-import { fetchAndParseSMS, requestSmsPermission } from "@/utils/smsParser";
+import { fetchAndParseSMS, isSmsAutoSyncAvailable, requestSmsPermission } from "@/utils/smsParser";
 import { useTheme } from "@/context/ThemeContext";
 
 interface MenuItemProps {
@@ -120,6 +122,7 @@ export default function ProfileScreen() {
   const [nameVal, setNameVal] = useState(user?.name || "");
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+  const [showSupportModal, setShowSupportModal] = useState(false);
 
   React.useEffect(() => {
     setAvatarLoadFailed(false);
@@ -230,6 +233,8 @@ export default function ProfileScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
+  const [showConsentModal, setShowConsentModal] = useState(false);
+
   const handleToggleAutoSync = async (newValue: boolean) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (!newValue) {
@@ -237,25 +242,21 @@ export default function ProfileScreen() {
       await AsyncStorage.setItem("@auto_sync_enabled", "false");
       return;
     }
-
-    Alert.alert(
-      "SMS Access Consent",
-      "To automatically log your spends, we need permission to read your incoming SMS messages to detect bank and UPI transactions.\n\nYour data is completely private. Messages are processed entirely on your device and are never sent to any server.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "I Understand", onPress: () => proceedWithSmsSync() }
-      ]
-    );
+    setShowConsentModal(true);
   };
 
   const proceedWithSmsSync = async () => {
     try {
+      if (Platform.OS !== "android" || !isSmsAutoSyncAvailable()) {
+        setAutoSyncEnabled(false);
+        await AsyncStorage.setItem("@auto_sync_enabled", "false");
+        return;
+      }
+
       const granted = await requestSmsPermission();
       if (!granted) {
-        Alert.alert(
-          "SMS Sync Unavailable",
-          "Auto-Sync needs native Android SMS access. Please use an Android development/production build and grant SMS permission."
-        );
+        setAutoSyncEnabled(false);
+        await AsyncStorage.setItem("@auto_sync_enabled", "false");
         return;
       }
 
@@ -263,41 +264,19 @@ export default function ProfileScreen() {
       await AsyncStorage.setItem("@auto_sync_enabled", "true");
 
       const lastSyncStr = await AsyncStorage.getItem("@last_sms_sync_time");
-      let minDateMs = Date.now() - 30 * 24 * 60 * 60 * 1000; // default to 30 days ago
+      let minDateMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
       if (lastSyncStr) {
         minDateMs = parseInt(lastSyncStr, 10);
       }
 
       const parsedExpenses = await fetchAndParseSMS(minDateMs);
-
-      if (parsedExpenses.length === 0) {
-        Alert.alert("Auto-Sync Enabled", "Your SMS will now be synced securely in the background.");
-        return;
+      if (parsedExpenses.length > 0) {
+        await addMultipleExpenses(parsedExpenses);
+        await AsyncStorage.setItem("@last_sms_sync_time", Date.now().toString());
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-
-      Alert.alert(
-        "Auto-Sync Enabled", 
-        `We found ${parsedExpenses.length} past transactions. Add them to your expenses?`, 
-        [
-          { text: "Skip", style: "cancel", onPress: () => AsyncStorage.setItem("@last_sms_sync_time", Date.now().toString()) },
-          {
-            text: "Add All",
-            style: "default",
-            onPress: async () => {
-               await addMultipleExpenses(parsedExpenses);
-               await AsyncStorage.setItem("@last_sms_sync_time", Date.now().toString());
-               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            }
-          }
-        ]
-      );
     } catch (err: any) {
-      if (Platform.OS !== "android") {
-        Alert.alert("Feature Limited", "SMS Auto-Sync is an Android-exclusive feature. You can still add expenses manually on iOS.");
-        setAutoSyncEnabled(false);
-        return;
-      }
-      Alert.alert("SMS Sync Error", "Could not access SMS messages. Please ensure you have granted the required permissions in your device settings.");
+      console.warn("Silent SMS Sync Error:", err);
       setAutoSyncEnabled(false);
       await AsyncStorage.setItem("@auto_sync_enabled", "false");
     }
@@ -532,6 +511,13 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>SUPPORT</Text>
           <MenuItem
+            icon="life-buoy"
+            label="Raise Support Ticket"
+            sublabel="Direct customer desk"
+            onPress={() => setShowSupportModal(true)}
+          />
+          <Divider />
+          <MenuItem
             icon="help-circle"
             label="Help & FAQ"
             sublabel="Common questions"
@@ -551,6 +537,17 @@ export default function ProfileScreen() {
           <MenuItem icon="log-out" label="Sign Out" onPress={handleLogout} danger />
         </View>
       </ScrollView>
+
+      <PrivacyConsentModal
+        visible={showConsentModal}
+        onClose={() => setShowConsentModal(false)}
+        onConfirmConsent={proceedWithSmsSync}
+      />
+
+      <SupportModal
+        visible={showSupportModal}
+        onClose={() => setShowSupportModal(false)}
+      />
     </View>
   );
 }

@@ -18,6 +18,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
+import { safeHaptics } from "@/utils/haptics";
+import { validatePassword } from "@/utils/passwordValidator";
+import { validateEmail } from "@/utils/validation";
 
 function translateAuthError(rawError: string | object): string {
   if (!rawError) return "An unexpected error occurred. Please try again.";
@@ -41,7 +44,7 @@ function translateAuthError(rawError: string | object): string {
     return "This email address is already registered. Please sign in instead.";
   }
   if (msg.includes("weak-password")) {
-    return "Password is too weak. Please use at least 6 characters.";
+    return "Password is too weak. Must be at least 8 characters with uppercase, lowercase, number, and special character.";
   }
   if (msg.includes("network-request-failed") || msg.includes("network_error")) {
     return "Connection error. Please check your internet connection and try again.";
@@ -66,16 +69,49 @@ export default function RegisterScreen() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
+  const [agreeTerms, setAgreeTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const [verificationSent, setVerificationSent] = useState(false);
+
+  const pwdValidation = validatePassword(password);
+  const emailCheck = validateEmail(email.trim());
+  const isEmailValid = email.trim().length > 0 && emailCheck.isValid;
+
   const handleRegister = async () => {
     setError("");
+    if (!name.trim() || !email.trim() || !username.trim() || !password) {
+      setError("Please fill in all fields.");
+      return;
+    }
+
+    if (!isEmailValid) {
+      setError(emailCheck.error || "Please enter a valid email address.");
+      return;
+    }
+
+    if (!agreeTerms) {
+      setError("Please read and tick the Privacy Consent checkbox below to proceed.");
+      return;
+    }
+
+    if (!pwdValidation.isValid) {
+      setError(`Password requirements not met: ${pwdValidation.errors[0]}`);
+      return;
+    }
+
     setLoading(true);
     const result = await register(username.trim(), password, name.trim(), email.trim());
     setLoading(false);
     if (result.success) {
-      router.replace("/(tabs)");
+      router.replace({
+        pathname: "/login",
+        params: {
+          email: email.trim().toLowerCase(),
+          verificationSent: "true",
+        },
+      });
     } else {
       setError(translateAuthError(result.error || "Registration failed"));
     }
@@ -151,6 +187,24 @@ export default function RegisterScreen() {
       color: colors.foreground,
       fontFamily: "Inter_400Regular",
     },
+    pwdHintsWrap: {
+      marginTop: 10,
+      backgroundColor: colors.text === "#f8fafc" ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+      borderRadius: 10,
+      padding: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    pwdHintRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: 4,
+    },
+    pwdHintText: {
+      fontSize: 12,
+      marginLeft: 6,
+      fontFamily: "Inter_400Regular",
+    },
     errorBox: {
       backgroundColor: colors.text === "#f8fafc" ? "rgba(239, 68, 68, 0.15)" : "#fee2e2",
       borderRadius: 10,
@@ -201,8 +255,8 @@ export default function RegisterScreen() {
   return (
     <View style={styles.container}>
       <LinearGradient colors={colors.text === "#f8fafc" ? ["#0B0D18", "#080A10"] : ["#E5E7EB", "#F3F4F6"]} style={styles.gradient}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}>
+          <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: 80 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <View style={styles.inner}>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                 <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
@@ -216,7 +270,25 @@ export default function RegisterScreen() {
               <Text style={styles.heading}>Create account</Text>
               <Text style={styles.subheading}>Start tracking your expenses today</Text>
 
-              <View style={styles.card}>
+              {verificationSent ? (
+                <View style={[styles.card, { alignItems: "center", paddingVertical: 32 }]}>
+                  <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: "rgba(16, 185, 129, 0.15)", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+                    <Feather name="mail" size={32} color="#10B981" />
+                  </View>
+                  <Text style={[styles.heading, { fontSize: 20, textAlign: "center", marginBottom: 8 }]}>Verification Email Sent! 📩</Text>
+                  <Text style={[styles.subheading, { textAlign: "center", marginBottom: 24, paddingHorizontal: 12 }]}>
+                    We have sent a verification link to <Text style={{ color: "#6366f1", fontWeight: "700" }}>{email}</Text>. Please open your email inbox and click the verification link to activate your account.
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.registerBtn, { width: "100%" }]}
+                    onPress={() => router.replace("/login")}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.registerBtnText}>Proceed to Sign In</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.card}>
                 <Text style={[styles.label, { marginTop: 0 }]}>FULL NAME</Text>
                 <View style={styles.inputWrap}>
                   <Feather name="user" size={16} color={colors.mutedForeground} style={{ marginRight: 8 }} />
@@ -267,16 +339,70 @@ export default function RegisterScreen() {
                     style={styles.input}
                     value={password}
                     onChangeText={setPassword}
-                    placeholder="Min. 6 characters"
+                    placeholder="8+ chars, uppercase, lowercase, number, symbol"
                     placeholderTextColor={colors.mutedForeground}
                     secureTextEntry={!showPwd}
                     returnKeyType="done"
                     onSubmitEditing={handleRegister}
                   />
-                  <TouchableOpacity onPress={() => setShowPwd((p) => !p)} style={{ padding: 4 }}>
+                  <TouchableOpacity
+                    onPress={() => password.length > 0 && setShowPwd((p) => !p)}
+                    style={{ padding: 4, opacity: password.length > 0 ? 1 : 0.3 }}
+                    disabled={password.length === 0}
+                  >
                     <Feather name={showPwd ? "eye-off" : "eye"} size={16} color={colors.mutedForeground} />
                   </TouchableOpacity>
                 </View>
+
+                {password.length > 0 && (
+                  <View style={styles.pwdHintsWrap}>
+                    {[
+                      { label: "8+ characters", ok: password.length >= 8 },
+                      { label: "Uppercase letter (A-Z)", ok: /[A-Z]/.test(password) },
+                      { label: "Lowercase letter (a-z)", ok: /[a-z]/.test(password) },
+                      { label: "Number (0-9)", ok: /[0-9]/.test(password) },
+                      { label: "Special symbol (@, #, $, !)", ok: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password) },
+                    ].map((item, idx) => (
+                      <View key={idx} style={styles.pwdHintRow}>
+                        <Feather
+                          name={item.ok ? "check-circle" : "x-circle"}
+                          size={12}
+                          color={item.ok ? "#10b981" : "#ef4444"}
+                        />
+                        <Text style={[styles.pwdHintText, { color: item.ok ? "#10b981" : colors.mutedForeground }]}>
+                          {item.label}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  style={{ flexDirection: "row", alignItems: "center", marginTop: 16, marginBottom: 8, gap: 10 }}
+                  onPress={() => {
+                    safeHaptics.selectionAsync();
+                    setAgreeTerms(!agreeTerms);
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: 5,
+                      borderWidth: 2,
+                      borderColor: agreeTerms ? "#6366f1" : colors.border,
+                      backgroundColor: agreeTerms ? "#6366f1" : "transparent",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    {agreeTerms && <Feather name="check" size={12} color="#fff" />}
+                  </View>
+                  <Text style={{ flex: 1, fontSize: 12, color: colors.foreground, fontFamily: "Inter_500Medium", lineHeight: 16 }}>
+                    I agree to the Privacy Policy & 100% on-device local financial data parsing.
+                  </Text>
+                </TouchableOpacity>
 
                 {!!error && (
                   <View style={styles.errorBox}>
@@ -286,9 +412,29 @@ export default function RegisterScreen() {
                 )}
 
                 <TouchableOpacity
-                  style={[styles.registerBtn, { opacity: loading ? 0.7 : 1 }]}
+                  style={[
+                    styles.registerBtn,
+                    {
+                      opacity:
+                        loading ||
+                        !name.trim() ||
+                        !isEmailValid ||
+                        !username.trim() ||
+                        !pwdValidation.isValid ||
+                        !agreeTerms
+                          ? 0.4
+                          : 1,
+                    },
+                  ]}
                   onPress={handleRegister}
-                  disabled={loading}
+                  disabled={
+                    loading ||
+                    !name.trim() ||
+                    !isEmailValid ||
+                    !username.trim() ||
+                    !pwdValidation.isValid ||
+                    !agreeTerms
+                  }
                   activeOpacity={0.85}
                 >
                   {loading ? (
@@ -305,6 +451,7 @@ export default function RegisterScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
+            )}
             </View>
           </ScrollView>
         </KeyboardAvoidingView>

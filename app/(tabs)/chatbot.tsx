@@ -18,6 +18,7 @@ import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { CATEGORIES, CategoryId, useExpenses, PaymentMode } from "@/context/ExpenseContext";
+import { useReceivables } from "@/context/ReceivablesContext";
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { safeHaptics } from "@/utils/haptics";
@@ -365,6 +366,7 @@ export default function ChatbotScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { user } = useAuth();
   const { addExpense, addMultipleExpenses, getCategoryTotalsForMonth, getTotalForMonth, expenses } = useExpenses();
+  const { getPendingReceivables, getTotalPendingAmount } = useReceivables();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
@@ -507,6 +509,16 @@ export default function ChatbotScreen() {
       lower.includes("edit expense") || lower.includes("edit transaction") || lower.includes("change expense") || lower.includes("change transaction") ||
       lower.includes("update transaction") || lower.includes("correct transaction") || lower.includes("modify transaction") || lower.includes("delete log")
     ) intents.push("ledger_guide");
+
+    // Money Recovery intent
+    if (
+      lower.includes("owes me") || lower.includes("where is my money") || lower.includes("pending refund") ||
+      lower.includes("refund") || lower.includes("stuck money") || lower.includes("deposit") ||
+      lower.includes("reversal") || lower.includes("who owes me") || lower.includes("recovery agent") ||
+      lower.includes("return money") || lower.includes("swiggy") || lower.includes("zepto") ||
+      lower.includes("zomato") || lower.includes("blinkit") || lower.includes("amazon") ||
+      lower.includes("flight") || lower.includes("claim") || lower.includes("overdue")
+    ) intents.push("money_recovery");
 
     // Help / cheatsheet — only if no other intents
     if (!intents.length && (lower.includes("help") || lower === "/help" || lower.includes("what can you do") || lower.includes("commands")))
@@ -790,6 +802,24 @@ export default function ChatbotScreen() {
           break;
         }
 
+        case "money_recovery": {
+          const pending = getPendingReceivables();
+          const totalPending = getTotalPendingAmount();
+
+          if (pending.length === 0) {
+            addMessage("bot", `💰 **Money Recovery Agent Status**\n\nYou currently have **no active pending refunds**! All your post-purchase money is settled.\n\nIf you have a new Amazon/Flipkart return, flight cancellation, or stuck UPI payment, open the **Money Recovery Hub** or paste the refund email right here!`);
+          } else {
+            const itemsText = pending.slice(0, 4).map(r => {
+              const isOverdue = new Date().toISOString().split("T")[0] > r.expectedRefundDate;
+              const statusPill = isOverdue ? "🔴 OVERDUE" : "🟢 EXPECTED";
+              return `• **${r.merchant}**: ₹${r.amount.toLocaleString("en-IN")} (${statusPill} - Promised by ${r.expectedRefundDate})`;
+            }).join("\n");
+
+            addMessage("bot", `💰 **Money Recovery Agent**\n\nYou are currently waiting for **₹${totalPending.toLocaleString("en-IN")}** across **${pending.length} active case(s)**:\n\n${itemsText}\n\nGo to the **Money Recovery Hub** on your Home screen to view full evidence dossiers & generate customer support / NCH complaint templates!`);
+          }
+          break;
+        }
+
         case "help": {
           addMessage("bot", `Sure ${firstName}! Here's everything I can do for you 💡`, {
             type: "help_guide",
@@ -1010,11 +1040,11 @@ export default function ChatbotScreen() {
         { text: "Other", icon: "hash" },
       ];
     return [
-      { text: "Spent 150 on coffee", icon: "coffee" },
-      { text: "Show my budget", icon: "bar-chart-2" },
-      { text: "Download statement", icon: "download" },
-      { text: "Raise support ticket", icon: "life-buoy" },
-      { text: "Tell me a joke", icon: "smile" },
+      { text: "💰 Overdue Refunds", icon: "shield" },
+      { text: "📊 Monthly Spends", icon: "bar-chart-2" },
+      { text: "🛍️ Swiggy / Zepto Status", icon: "shopping-bag" },
+      { text: "📄 Download PDF Statement", icon: "download" },
+      { text: "🆘 Raise Support Ticket", icon: "life-buoy" },
     ];
   };
   const suggestions = getSuggestions();
