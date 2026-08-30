@@ -13,6 +13,7 @@ import {
 import * as Haptics from "expo-haptics";
 
 import { useReceivables } from "@/context/ReceivablesContext";
+import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
 import type { Receivable } from "@/types/receivable";
 import {
@@ -32,6 +33,7 @@ interface RecoveryDetailModalProps {
 export default function RecoveryDetailModal({ receivable, visible, onClose }: RecoveryDetailModalProps) {
   const colors = useColors();
   const { addInteractionLog, markAsRecovered, deleteReceivable } = useReceivables();
+  const { requirePro } = useSubscription();
 
   const [activeTab, setActiveTab] = useState<"timeline" | "escalation">("escalation");
   const [escalationLevel, setEscalationLevel] = useState<1 | 2 | 3>(1);
@@ -196,7 +198,11 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.levelChip, { borderColor: colors.border }, escalationLevel === 2 && { backgroundColor: colors.primary, borderColor: colors.primary }]}
-                    onPress={() => setEscalationLevel(2)}
+                    onPress={() => {
+                      if (requirePro("L2 Grievance Officer Escalation")) {
+                        setEscalationLevel(2);
+                      }
+                    }}
                   >
                     <Text style={[styles.levelChipText, escalationLevel === 2 && styles.levelChipTextActive]}>
                       L2: Grievance Officer
@@ -204,7 +210,11 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.levelChip, { borderColor: colors.border }, escalationLevel === 3 && { backgroundColor: colors.primary, borderColor: colors.primary }]}
-                    onPress={() => setEscalationLevel(3)}
+                    onPress={() => {
+                      if (requirePro("L3 National Consumer Helpline Notice")) {
+                        setEscalationLevel(3);
+                      }
+                    }}
                   >
                     <Text style={[styles.levelChipText, escalationLevel === 3 && styles.levelChipTextActive]}>
                       L3: NCH Grievance
@@ -231,7 +241,11 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
                   <Text style={[styles.evidenceBody, { color: colors.mutedForeground }]}>{evidenceSummary}</Text>
                   <TouchableOpacity
                     style={[styles.copyOutlineBtn, { borderColor: colors.border }]}
-                    onPress={() => handleCopyText(evidenceSummary, "Evidence Dossier")}
+                    onPress={() => {
+                      if (requirePro("Legal Evidence Dossier Export")) {
+                        handleCopyText(evidenceSummary, "Evidence Dossier");
+                      }
+                    }}
                   >
                     <Feather name="file-text" size={14} color={colors.primary} style={{ marginRight: 6 }} />
                     <Text style={[styles.copyOutlineText, { color: colors.primary }]}>Copy Full Evidence</Text>

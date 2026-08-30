@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { safeHaptics } from "@/utils/haptics";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Keyboard,
@@ -22,6 +22,8 @@ import { CATEGORIES, CategoryId, PaymentMode, useExpenses } from "@/context/Expe
 import { useColors } from "@/hooks/useColors";
 import MiniCalendar from "./MiniCalendar";
 import { isDarkPalette } from "@/utils/designSystem";
+import { inferExpenseDraft } from "@/utils/expenseSmartInput";
+import MerchantLogo from "./MerchantLogo";
 
 function todayISO() {
   const d = new Date();
@@ -55,6 +57,7 @@ interface Props {
     categoryId: CategoryId;
     paymentMode?: PaymentMode;
     note: string;
+    merchant?: string;
     date: string;
   } | null;
 }
@@ -62,14 +65,22 @@ interface Props {
 const QUICK_INCREMENTS = [50, 100, 500, 2000];
 
 const GENZ_VIBES: { label: string; icon: string; category: CategoryId }[] = [
-  { label: "☕ Coffee Fix", icon: "coffee", category: "food_outside" },
-  { label: "🍔 Fast Food", icon: "shopping-bag", category: "food_outside" },
-  { label: "🚕 Cab / Auto", icon: "navigation", category: "travel" },
-  { label: "🛒 Groceries", icon: "shopping-cart", category: "groceries" },
-  { label: "🍿 Cinema / Chill", icon: "film", category: "entertainment" },
-  { label: "🎉 Party / Treat", icon: "gift", category: "entertainment" },
-  { label: "⚡ Utility Bill", icon: "zap", category: "utilities" },
+  { label: "Coffee Run", icon: "coffee", category: "food_outside" },
+  { label: "Fast Food", icon: "shopping-bag", category: "food_outside" },
+  { label: "Cab / Auto", icon: "navigation", category: "travel" },
+  { label: "Grocery Drop", icon: "shopping-cart", category: "groceries" },
+  { label: "Movie Night", icon: "film", category: "entertainment" },
+  { label: "Party / Treat", icon: "gift", category: "entertainment" },
+  { label: "Utility Bill", icon: "zap", category: "utilities" },
 ];
+
+function paymentIcon(mode: PaymentMode) {
+  if (mode === "upi") return "zap";
+  if (mode === "card") return "credit-card";
+  if (mode === "cash") return "dollar-sign";
+  if (mode === "netbanking") return "briefcase";
+  return "minus-circle";
+}
 
 export default function AddExpenseModal({ visible, onClose, defaultDate, editExpense }: Props) {
   const colors = useColors();
@@ -143,7 +154,7 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
     const showSub = Keyboard.addListener(showEvent, (e) => {
       const height = e.endCoordinates?.height || 0;
       setKeyboardHeight(height);
-      
+
       Animated.parallel([
         Animated.timing(keyboardPaddingAnim, {
           toValue: height - 20,
@@ -160,7 +171,7 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
 
     const hideSub = Keyboard.addListener(hideEvent, (e) => {
       setKeyboardHeight(0);
-      
+
       Animated.parallel([
         Animated.timing(keyboardPaddingAnim, {
           toValue: 24,
@@ -191,7 +202,33 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
     safeHaptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedCategory(vibe.category);
     if (!note) {
-      setNote(vibe.label.replace(/^[^\s]+\s/, ""));
+      setNote(vibe.label);
+    }
+  };
+
+  const parsedAmount = parseFloat(amount) || 0;
+  const isFuture = isFutureISODate(date);
+  const smartDraft = useMemo(() => inferExpenseDraft(note), [note]);
+  const selectedCategoryMeta = useMemo(
+    () => CATEGORIES.find((category) => category.id === selectedCategory) || CATEGORIES[0],
+    [selectedCategory]
+  );
+  const editAmountOnSelectedDate = editExpense?.date === date ? Number(editExpense.amount || 0) : 0;
+  const projectedDailyTotal = Math.max(0, getTotalForDate(date) - editAmountOnSelectedDate + parsedAmount);
+  const inferredMerchant = smartDraft.merchant || editExpense?.merchant || "";
+  const hasSmartSuggestion = note.trim().length > 2 && smartDraft.signals.length > 0;
+  const saveDisabled = !parsedAmount || parsedAmount <= 0 || isFuture || saving;
+
+  const handleApplySmartDraft = () => {
+    if (!hasSmartSuggestion) return;
+    safeHaptics.selectionAsync();
+    if (smartDraft.amount && (!amount.trim() || Number(amount) <= 0)) {
+      setAmount(String(smartDraft.amount));
+    }
+    if (smartDraft.categoryId) setSelectedCategory(smartDraft.categoryId);
+    if (smartDraft.paymentMode) setPaymentMode(smartDraft.paymentMode);
+    if (smartDraft.cleanedNote && smartDraft.cleanedNote !== note.trim()) {
+      setNote(smartDraft.cleanedNote);
     }
   };
 
@@ -202,26 +239,22 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
     safeHaptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const normalizedDate = normalizeISODate(date);
     try {
-      const finalNote = showSplit && splitCount > 1 
+      const finalNote = showSplit && splitCount > 1
         ? `${note.trim() ? note.trim() + " " : ""}(Split ÷${splitCount}: ₹${(parsed / splitCount).toFixed(0)}/person)`
         : note.trim();
+      const expensePayload = {
+        amount: parsed,
+        categoryId: selectedCategory,
+        paymentMode,
+        note: finalNote,
+        date: normalizedDate,
+        ...(inferredMerchant ? { merchant: inferredMerchant } : {}),
+      };
 
       if (editExpense) {
-        await updateExpense(editExpense.id, {
-          amount: parsed,
-          categoryId: selectedCategory,
-          paymentMode,
-          note: finalNote,
-          date: normalizedDate,
-        });
+        await updateExpense(editExpense.id, expensePayload);
       } else {
-        await addExpense({
-          amount: parsed,
-          categoryId: selectedCategory,
-          paymentMode,
-          note: finalNote,
-          date: normalizedDate,
-        });
+        await addExpense(expensePayload);
       }
       onClose();
     } catch {
@@ -229,10 +262,7 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
     } finally {
       setSaving(false);
     }
-  }, [amount, date, editExpense, note, paymentMode, selectedCategory, updateExpense, addExpense, onClose, showSplit, splitCount]);
-
-  const parsedAmount = parseFloat(amount) || 0;
-  const isFuture = isFutureISODate(date);
+  }, [amount, date, editExpense, inferredMerchant, note, paymentMode, selectedCategory, updateExpense, addExpense, onClose, showSplit, splitCount]);
 
   const styles = StyleSheet.create({
     overlay: {
@@ -330,6 +360,33 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
       fontFamily: "Inter_700Bold",
       padding: 0,
     },
+    amountMetaRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+      marginTop: 12,
+    },
+    amountMetaPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      borderRadius: 12,
+      backgroundColor: isDark ? "rgba(56, 130, 255, 0.10)" : "#F0F7FF",
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(56, 130, 255, 0.20)" : "#DBEAFE",
+    },
+    amountMetaLabel: {
+      fontSize: 11,
+      fontFamily: "Inter_500Medium",
+      color: colors.mutedForeground,
+    },
+    amountMetaValue: {
+      fontSize: 11,
+      fontFamily: "Inter_700Bold",
+      color: colors.primary,
+    },
     chipScroll: {
       flexDirection: "row",
       marginTop: 12,
@@ -375,12 +432,15 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
       marginBottom: 12,
     },
     vibeChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 7,
       paddingVertical: 8,
       paddingHorizontal: 12,
       borderRadius: 12,
-      backgroundColor: isDark ? "rgba(255,255,255,0.06)" : colors.muted,
+      backgroundColor: isDark ? "rgba(56, 130, 255, 0.10)" : "#F0F7FF",
       borderWidth: 1,
-      borderColor: colors.border,
+      borderColor: isDark ? "rgba(56, 130, 255, 0.20)" : "#DBEAFE",
       marginRight: 8,
     },
     vibeText: {
@@ -424,6 +484,9 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
     paymentChip: {
       flex: 1,
       alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "row",
+      gap: 5,
       paddingVertical: 10,
       borderRadius: 12,
       borderWidth: 1,
@@ -454,6 +517,113 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
       fontFamily: "Inter_400Regular",
       borderWidth: 1,
       borderColor: colors.border,
+    },
+    smartCard: {
+      marginTop: 10,
+      padding: 12,
+      borderRadius: 16,
+      backgroundColor: isDark ? "rgba(56, 130, 255, 0.10)" : "#F0F7FF",
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(56, 130, 255, 0.22)" : "#BFDBFE",
+    },
+    smartTopRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    smartIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: 11,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    smartTextWrap: {
+      flex: 1,
+      minWidth: 0,
+    },
+    smartTitle: {
+      fontSize: 13,
+      fontFamily: "Inter_700Bold",
+      color: colors.foreground,
+    },
+    smartText: {
+      marginTop: 2,
+      fontSize: 12,
+      lineHeight: 17,
+      fontFamily: "Inter_500Medium",
+      color: colors.mutedForeground,
+    },
+    smartApplyBtn: {
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 11,
+      backgroundColor: colors.primary,
+    },
+    smartApplyText: {
+      color: "#FFFFFF",
+      fontSize: 12,
+      fontFamily: "Inter_700Bold",
+    },
+    previewCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      marginTop: 16,
+      padding: 13,
+      borderRadius: 18,
+      backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "#FFFFFF",
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    previewIconFallback: {
+      width: 46,
+      height: 46,
+      borderRadius: 14,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: isDark ? "rgba(56, 130, 255, 0.12)" : "#EFF6FF",
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(56, 130, 255, 0.22)" : "#DBEAFE",
+    },
+    previewContent: {
+      flex: 1,
+      minWidth: 0,
+    },
+    previewTitle: {
+      fontSize: 13,
+      fontFamily: "Inter_700Bold",
+      color: colors.foreground,
+    },
+    previewSub: {
+      marginTop: 3,
+      fontSize: 12,
+      fontFamily: "Inter_500Medium",
+      color: colors.mutedForeground,
+    },
+    previewAmount: {
+      fontSize: 16,
+      fontFamily: "Inter_700Bold",
+      color: colors.primary,
+    },
+    warningRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      marginTop: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderRadius: 12,
+      backgroundColor: isDark ? "rgba(239, 68, 68, 0.10)" : "#FEF2F2",
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(239, 68, 68, 0.24)" : "#FECACA",
+    },
+    warningText: {
+      flex: 1,
+      color: "#EF4444",
+      fontSize: 12,
+      fontFamily: "Inter_600SemiBold",
     },
     dateRow: {
       flexDirection: "row",
@@ -614,6 +784,21 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
                       </TouchableOpacity>
                     )}
                   </ScrollView>
+
+                  <View style={styles.amountMetaRow}>
+                    <View style={styles.amountMetaPill}>
+                      <Feather name="calendar" size={12} color={colors.primary} />
+                      <Text style={styles.amountMetaLabel}>Today</Text>
+                      <Text style={styles.amountMetaValue}>₹{projectedDailyTotal.toLocaleString("en-IN")}</Text>
+                    </View>
+                    {parsedAmount > 0 && (
+                      <View style={styles.amountMetaPill}>
+                        <Feather name={paymentIcon(paymentMode) as any} size={12} color={colors.primary} />
+                        <Text style={styles.amountMetaLabel}>Mode</Text>
+                        <Text style={styles.amountMetaValue}>{paymentMode === "none" ? "None" : paymentMode === "netbanking" ? "Bank" : paymentMode.toUpperCase()}</Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
 
                 {/* Gen-Z Quick Vibe / Activity Presets */}
@@ -626,6 +811,7 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
                       onPress={() => handleApplyVibe(v)}
                       activeOpacity={0.75}
                     >
+                      <Feather name={v.icon as any} size={13} color={colors.primary} />
                       <Text style={styles.vibeText}>{v.label}</Text>
                     </TouchableOpacity>
                   ))}
@@ -699,6 +885,11 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
                           safeHaptics.selectionAsync();
                         }}
                       >
+                        <Feather
+                          name={paymentIcon(mode) as any}
+                          size={13}
+                          color={isActive ? "#FFFFFF" : colors.primary}
+                        />
                         <Text style={[styles.paymentText, isActive && styles.paymentTextActive]} numberOfLines={1}>
                           {mode === "none" ? "None" : mode === "netbanking" ? "Bank" : mode.toUpperCase()}
                         </Text>
@@ -718,6 +909,30 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
                   returnKeyType="done"
                   onSubmitEditing={Keyboard.dismiss}
                 />
+
+                {hasSmartSuggestion && (
+                  <View style={styles.smartCard}>
+                    <View style={styles.smartTopRow}>
+                      <View style={styles.smartIcon}>
+                        <Feather name="zap" size={16} color="#FFFFFF" />
+                      </View>
+                      <View style={styles.smartTextWrap}>
+                        <Text style={styles.smartTitle}>Smart fill available</Text>
+                        <Text style={styles.smartText} numberOfLines={2}>
+                          {[
+                            smartDraft.amount ? `₹${smartDraft.amount.toLocaleString("en-IN")}` : null,
+                            smartDraft.merchant,
+                            smartDraft.categoryId ? CATEGORIES.find((cat) => cat.id === smartDraft.categoryId)?.label : null,
+                            smartDraft.paymentMode ? smartDraft.paymentMode.toUpperCase() : null,
+                          ].filter(Boolean).join(" · ")}
+                        </Text>
+                      </View>
+                      <TouchableOpacity style={styles.smartApplyBtn} onPress={handleApplySmartDraft} activeOpacity={0.8}>
+                        <Text style={styles.smartApplyText}>Apply</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
 
                 {/* Split Bill Calculator Toggle */}
                 {parsedAmount > 0 && (
@@ -806,9 +1021,31 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
                 )}
 
                 {isFuture && (
-                  <Text style={{ color: "#EF4444", fontSize: 12, fontFamily: "Inter_500Medium", marginTop: 8 }}>
-                    ⚠️ Cannot log future-dated transactions.
-                  </Text>
+                  <View style={styles.warningRow}>
+                    <Feather name="alert-triangle" size={14} color="#EF4444" />
+                    <Text style={styles.warningText}>Cannot log future-dated transactions.</Text>
+                  </View>
+                )}
+
+                {parsedAmount > 0 && !isFuture && (
+                  <View style={styles.previewCard}>
+                    {inferredMerchant ? (
+                      <MerchantLogo merchant={inferredMerchant} size={46} borderRadius={14} />
+                    ) : (
+                      <View style={styles.previewIconFallback}>
+                        <Feather name={selectedCategoryMeta.icon as any} size={19} color={colors.primary} />
+                      </View>
+                    )}
+                    <View style={styles.previewContent}>
+                      <Text style={styles.previewTitle} numberOfLines={1}>
+                        {inferredMerchant || selectedCategoryMeta.label}
+                      </Text>
+                      <Text style={styles.previewSub} numberOfLines={1}>
+                        {selectedCategoryMeta.label} · {paymentMode === "none" ? "No mode" : paymentMode === "netbanking" ? "Bank" : paymentMode.toUpperCase()} · {date}
+                      </Text>
+                    </View>
+                    <Text style={styles.previewAmount}>₹{parsedAmount.toLocaleString("en-IN")}</Text>
+                  </View>
                 )}
               </ScrollView>
 
@@ -816,10 +1053,10 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
               <TouchableOpacity
                 style={[
                   styles.saveBtn,
-                  { opacity: !parsedAmount || parsedAmount <= 0 || isFuture || saving ? 0.4 : 1 }
+                  { opacity: saveDisabled ? 0.4 : 1 }
                 ]}
                 onPress={handleSave}
-                disabled={!parsedAmount || parsedAmount <= 0 || isFuture || saving}
+                disabled={saveDisabled}
                 activeOpacity={0.85}
               >
                 <Feather name={saving ? "loader" : "check"} size={18} color="#FFFFFF" />

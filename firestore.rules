@@ -15,38 +15,104 @@ service cloud.firestore {
         request.auth.token.email == "agarwaltanmay401@gmail.com"
       );
     }
-    
+
+    function ownerUserCreateFields() {
+      return [
+        "uid",
+        "name",
+        "email",
+        "username",
+        "bio",
+        "avatarUri",
+        "avatarResizeMode",
+        "emailVerified",
+        "pendingVerification",
+        "verifiedAt",
+        "authProvider",
+        "createdAt",
+        "lastActive"
+      ];
+    }
+
+    function ownerUserUpdateFields() {
+      return [
+        "name",
+        "username",
+        "bio",
+        "avatarUri",
+        "avatarResizeMode",
+        "emailVerified",
+        "pendingVerification",
+        "verifiedAt",
+        "lastActive"
+      ];
+    }
+
+    function validOwnerIdentity(userId) {
+      return request.resource.data.uid == userId &&
+        (!request.resource.data.keys().hasAny(["email"]) || request.resource.data.email == request.auth.token.email);
+    }
+
+    function validOwnerVerificationUpdate() {
+      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      return !affected.hasAny(["emailVerified", "pendingVerification", "verifiedAt"]) ||
+        (
+          request.auth.token.email_verified == true &&
+          request.resource.data.emailVerified == true &&
+          request.resource.data.pendingVerification == false
+        );
+    }
+
     // Lock down user collections (profile, expenses, notifications, settings)
     match /users/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
-      
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAdmin() || (
+        isOwner(userId) &&
+        request.resource.data.keys().hasOnly(ownerUserCreateFields()) &&
+        validOwnerIdentity(userId) &&
+        !request.resource.data.keys().hasAny(["subscription", "role", "admin", "isAdmin"])
+      );
+      allow update: if isAdmin() || (
+        isOwner(userId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(ownerUserUpdateFields()) &&
+        validOwnerIdentity(userId) &&
+        validOwnerVerificationUpdate()
+      );
+      allow delete: if isAdmin();
+
       match /expenses/{expenseId} {
         allow read, write: if isOwner(userId) || isAdmin();
       }
-      
+
       match /notifications/{notificationId} {
         allow read, write: if isOwner(userId) || isAdmin();
       }
-      
+
       match /settings/{settingId} {
         allow read, write: if isOwner(userId) || isAdmin();
       }
-      
+
       match /budgets/{budgetId} {
         allow read, write: if isOwner(userId) || isAdmin();
       }
     }
-    
+
     // Lock down statement downloads requests
     match /statement_requests/{requestId} {
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
       allow read: if (signedIn() && resource.data.userId == request.auth.uid) || isAdmin();
       allow update, delete: if isAdmin();
     }
-    
+
 
     // Lock down support cases (raised by FAQ panel)
     match /support_cases/{caseId} {
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow read: if (signedIn() && resource.data.userId == request.auth.uid) || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    match /subscription_requests/{requestId} {
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
       allow read: if (signedIn() && resource.data.userId == request.auth.uid) || isAdmin();
       allow update, delete: if isAdmin();
@@ -59,6 +125,12 @@ service cloud.firestore {
     match /mail/{mailId} {
       allow create: if isAdmin();
       allow read, update, delete: if false;
+    }
+
+    // App Configuration (Pricing, Plan matrices, Feature flags)
+    match /app_config/{configDoc} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
     }
   }
 }

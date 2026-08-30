@@ -26,14 +26,14 @@ import FormattedErrorMessage from "@/components/FormattedErrorMessage";
 
 function translateAuthError(rawError: string | object): string {
   if (!rawError) return "An unexpected error occurred. Please try again.";
-  
+
   let errorString = "";
   if (typeof rawError === "object") {
     errorString = (rawError as any).message || (rawError as any).error || JSON.stringify(rawError);
   } else {
     errorString = String(rawError);
   }
-  
+
   const msg = errorString.toLowerCase();
   
   if (msg.includes("developer_error") || msg.includes("developer-error")) {

@@ -3,6 +3,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams } from "expo-router";
 import { useAuth } from "@/context/AuthContext";
+import { useSubscription } from "@/context/SubscriptionContext";
 import React, { useState, useRef } from "react";
 import {
   Alert,
@@ -252,7 +253,10 @@ export default function AnalyticsScreen() {
         .sort((a, b) => b.date.localeCompare(a.date))
     : [];
 
+  const { requirePro } = useSubscription();
+
   const downloadMonthlyStatement = async () => {
+    if (!requirePro("Bank-Grade PDF Statements")) return;
     if (isGeneratingRef.current) return;
     if (expensesThisMonth.length === 0) {
       Alert.alert("No data", "No expenses found for this month.");
@@ -290,6 +294,7 @@ export default function AnalyticsScreen() {
   };
 
   const emailMonthlyStatement = async () => {
+    if (!requirePro("Automated Email Statements")) return;
     if (isEmailingRef.current) return;
     if (expensesThisMonth.length === 0) {
       Alert.alert("No data", "No expenses found for this month.");

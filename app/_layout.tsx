@@ -30,7 +30,9 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ExpenseProvider } from "@/context/ExpenseContext";
 import { ReceivablesProvider } from "@/context/ReceivablesContext";
 import { BudgetProvider } from "@/context/BudgetContext";
+import { SubscriptionProvider } from "@/context/SubscriptionContext";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
+import PaywallModal from "@/components/PaywallModal";
 import { useColors } from "@/hooks/useColors";
 import {
   DAILY_REMINDER_TYPE,
@@ -753,25 +755,30 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <ThemeProvider>
             <AuthProvider>
-              <ExpenseProvider>
-                <ReceivablesProvider>
-                  <BudgetProvider>
-                    <GestureHandlerRootView style={{ flex: 1 }}>
-                      {resolvedLoaded ? (
-                        <RootLayoutNav />
-                      ) : (
-                        <View style={{ flex: 1, backgroundColor: "#FFFFFF" }} />
-                      )}
-                      {!splashFinished && (
-                        <AnimatedSplashScreen 
-                          onFinish={() => setSplashFinished(true)} 
-                          fontsLoaded={resolvedLoaded}
-                        />
-                      )}
-                    </GestureHandlerRootView>
-                  </BudgetProvider>
-                </ReceivablesProvider>
-              </ExpenseProvider>
+              <SubscriptionProvider>
+                <ExpenseProvider>
+                  <ReceivablesProvider>
+                    <BudgetProvider>
+                      <GestureHandlerRootView style={{ flex: 1 }}>
+                        {resolvedLoaded ? (
+                          <>
+                            <RootLayoutNav />
+                            <PaywallModal />
+                          </>
+                        ) : (
+                          <View style={{ flex: 1, backgroundColor: "#FFFFFF" }} />
+                        )}
+                        {!splashFinished && (
+                          <AnimatedSplashScreen
+                            onFinish={() => setSplashFinished(true)}
+                            fontsLoaded={resolvedLoaded}
+                          />
+                        )}
+                      </GestureHandlerRootView>
+                    </BudgetProvider>
+                  </ReceivablesProvider>
+                </ExpenseProvider>
+              </SubscriptionProvider>
             </AuthProvider>
           </ThemeProvider>
         </QueryClientProvider>

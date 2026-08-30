@@ -23,6 +23,7 @@ import PrivacyConsentModal from "@/components/PrivacyConsentModal";
 import SupportModal from "@/components/SupportModal";
 
 import { useAuth } from "@/context/AuthContext";
+import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
 import { isSmsAutoSyncAvailable, requestSmsPermission } from "@/utils/smsParser";
 import { queueSMSApprovalNotifications, registerSMSBackgroundSync, unregisterSMSBackgroundSync } from "@/utils/smsSync";
@@ -118,6 +119,7 @@ export default function ProfileScreen() {
   const { theme, setTheme } = useTheme();
   const insets = useSafeAreaInsets();
   const { user, logout, updateProfile } = useAuth();
+  const { isPro, isLifetime, plan, openPaywall } = useSubscription();
   const isDark = isDarkPalette(colors);
   const gradients = appGradients(colors);
 
@@ -612,6 +614,64 @@ export default function ProfileScreen() {
 
           <Text style={styles.usernameTextCentered}>@{user?.username}</Text>
           <Text style={styles.emailTextCentered}>{user?.email}</Text>
+
+          {/* Pro Membership Banner Card */}
+          <TouchableOpacity
+            style={{
+              marginTop: 16,
+              marginHorizontal: 4,
+              borderRadius: 18,
+              padding: 14,
+              backgroundColor: isPro
+                ? (isDark ? "rgba(245, 158, 11, 0.15)" : "#FEF3C7")
+                : (isDark ? "rgba(56, 130, 255, 0.15)" : "#EFF6FF"),
+              borderWidth: 1.5,
+              borderColor: isPro ? "#F59E0B" : colors.primary,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+            onPress={() => openPaywall("VIP Pro Membership")}
+            activeOpacity={0.85}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  backgroundColor: isPro ? "#F59E0B" : colors.primary,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Feather name={isPro ? "award" : "star"} size={20} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={{ fontSize: 14, fontFamily: "Inter_700Bold", color: colors.foreground }}>
+                    {isPro ? (isLifetime ? "PRO VIP (Lifetime)" : `PRO (${plan.toUpperCase()})`) : "WhisperLedger PRO"}
+                  </Text>
+                  <View
+                    style={{
+                      backgroundColor: isPro ? "#F59E0B" : colors.primary,
+                      paddingVertical: 1,
+                      paddingHorizontal: 6,
+                      borderRadius: 6,
+                    }}
+                  >
+                    <Text style={{ fontSize: 9, fontFamily: "Inter_700Bold", color: "#FFFFFF" }}>
+                      {isPro ? "ACTIVE" : "UPGRADE"}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 2 }} numberOfLines={1}>
+                  {isPro ? "All next-gen financial superpowers unlocked" : "AI Voice, PDF Statements & Recovery Engine"}
+                </Text>
+              </View>
+            </View>
+            <Feather name="chevron-right" size={18} color={isPro ? "#F59E0B" : colors.primary} />
+          </TouchableOpacity>
         </LinearGradient>
 
         {/* Preferences */}

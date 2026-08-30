@@ -24,6 +24,7 @@ import {
 import { CATEGORIES, CategoryId, useExpenses, PaymentMode } from "@/context/ExpenseContext";
 import { useReceivables } from "@/context/ReceivablesContext";
 import { useAuth } from "@/context/AuthContext";
+import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
 import { safeHaptics } from "@/utils/haptics";
 import * as Haptics from "expo-haptics";
@@ -509,7 +510,10 @@ export default function ChatbotScreen() {
     submitMessage(clean);
   };
 
+  const { requirePro } = useSubscription();
+
   const handleVoiceCommand = async () => {
+    if (!requirePro("AI Voice Auto-Logging")) return;
     if (isListening) {
       ExpoSpeechRecognitionModule.stop();
       return;
