@@ -1,5 +1,6 @@
 import {
   validateEmail,
+  validateFullName,
   validateUsername,
   validateAmount,
   validateMerchantName,
@@ -8,7 +9,7 @@ import {
 describe("Validation Utility Suite", () => {
   describe("validateEmail", () => {
     it("should accept valid email addresses (Happy Path)", () => {
-      expect(validateEmail("user@example.com").isValid).toBe(true);
+      expect(validateEmail("user@gmail.com").isValid).toBe(true);
       expect(validateEmail("  test.name+alias@domain.co.in ").isValid).toBe(true);
     });
 
@@ -18,6 +19,24 @@ describe("Validation Utility Suite", () => {
       expect(validateEmail("user@").isValid).toBe(false);
       expect(validateEmail("user@com").isValid).toBe(false);
       expect(validateEmail("plainaddress").isValid).toBe(false);
+      expect(validateEmail(".user@gmail.com").isValid).toBe(false);
+      expect(validateEmail("user..name@gmail.com").isValid).toBe(false);
+      expect(validateEmail("user@example.com").isValid).toBe(false);
+      expect(validateEmail("user@mailinator.com").isValid).toBe(false);
+    });
+  });
+
+  describe("validateFullName", () => {
+    it("should accept valid names (Happy Path)", () => {
+      expect(validateFullName("Tanmay Agarwal").isValid).toBe(true);
+      expect(validateFullName("Anne-Marie O'Neill").isValid).toBe(true);
+    });
+
+    it("should reject invalid names (Unhappy Path)", () => {
+      expect(validateFullName("").isValid).toBe(false);
+      expect(validateFullName("A").isValid).toBe(false);
+      expect(validateFullName("Tanmay123").isValid).toBe(false);
+      expect(validateFullName("X".repeat(70)).isValid).toBe(false);
     });
   });
 

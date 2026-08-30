@@ -18,10 +18,8 @@ import React, {
   useEffect,
   useState,
 } from "react";
-import * as Notifications from "expo-notifications";
 
-import { scheduleSMSApprovalNotification } from "@/utils/notifications";
-import { fetchAndParseSMS } from "@/utils/smsParser";
+import { queueSMSApprovalNotifications, registerSMSBackgroundSync } from "@/utils/smsSync";
 
 import { db } from "../lib/firebase";
 import { useAuth } from "./AuthContext";
@@ -58,25 +56,25 @@ export interface Category {
 }
 
 export const CATEGORIES: Category[] = [
-  { id: "travel", label: "Travel", icon: "navigation", color: "#3b82f6", lightColor: "#dbeafe" },
-  { id: "groceries", label: "Groceries", icon: "shopping-bag", color: "#10b981", lightColor: "#d1fae5" },
-  { id: "rent", label: "Rent", icon: "home", color: "#8b5cf6", lightColor: "#ede9fe" },
+  { id: "travel", label: "Travel", icon: "navigation", color: "#0EA5E9", lightColor: "#E0F2FE" },
+  { id: "groceries", label: "Groceries", icon: "shopping-bag", color: "#0F766E", lightColor: "#CCFBF1" },
+  { id: "rent", label: "Rent", icon: "home", color: "#7C2D12", lightColor: "#FFEDD5" },
   { id: "food_outside", label: "Food Outside", icon: "coffee", color: "#f59e0b", lightColor: "#fef3c7" },
-  { id: "transfer", label: "Transfer", icon: "send", color: "#ec4899", lightColor: "#fce7f3" },
-  { id: "utilities", label: "Utilities", icon: "zap", color: "#06b6d4", lightColor: "#cffafe" },
+  { id: "transfer", label: "Transfer", icon: "send", color: "#BE123C", lightColor: "#FFE4E6" },
+  { id: "utilities", label: "Utilities", icon: "zap", color: "#0891B2", lightColor: "#CFFAFE" },
   { id: "shopping", label: "Shopping", icon: "tag", color: "#f97316", lightColor: "#ffedd5" },
   { id: "health", label: "Health", icon: "heart", color: "#ef4444", lightColor: "#fee2e2" },
-  { id: "entertainment", label: "Entertainment", icon: "film", color: "#a855f7", lightColor: "#f3e8ff" },
-  { id: "invest", label: "Investment", icon: "trending-up", color: "#0ea5e9", lightColor: "#e0f2fe" },
-  { id: "education", label: "Education", icon: "book-open", color: "#2563eb", lightColor: "#dbeafe" },
+  { id: "entertainment", label: "Entertainment", icon: "film", color: "#C2410C", lightColor: "#FFEDD5" },
+  { id: "invest", label: "Investment", icon: "trending-up", color: "#15803D", lightColor: "#DCFCE7" },
+  { id: "education", label: "Education", icon: "book-open", color: "#4338CA", lightColor: "#E0E7FF" },
   { id: "bills", label: "Bills", icon: "file-text", color: "#0f766e", lightColor: "#ccfbf1" },
-  { id: "subscriptions", label: "Subscriptions", icon: "repeat", color: "#7c3aed", lightColor: "#ede9fe" },
+  { id: "subscriptions", label: "Subscriptions", icon: "repeat", color: "#475569", lightColor: "#E2E8F0" },
   { id: "personal_care", label: "Personal Care", icon: "scissors", color: "#db2777", lightColor: "#fce7f3" },
   { id: "gifts", label: "Gifts", icon: "gift", color: "#ea580c", lightColor: "#ffedd5" },
-  { id: "family", label: "Family", icon: "users", color: "#1d4ed8", lightColor: "#dbeafe" },
-  { id: "fuel", label: "Fuel", icon: "truck", color: "#4b5563", lightColor: "#e5e7eb" },
-  { id: "pets", label: "Pets", icon: "smile", color: "#16a34a", lightColor: "#dcfce7" },
-  { id: "other", label: "Other", icon: "more-horizontal", color: "#64748b", lightColor: "#f1f5f9" },
+  { id: "family", label: "Family", icon: "users", color: "#0369A1", lightColor: "#E0F2FE" },
+  { id: "fuel", label: "Fuel", icon: "truck", color: "#334155", lightColor: "#E2E8F0" },
+  { id: "pets", label: "Pets", icon: "smile", color: "#65A30D", lightColor: "#ECFCCB" },
+  { id: "other", label: "Other", icon: "more-horizontal", color: "#64748b", lightColor: "#F1F5F9" },
 ];
 
 export interface Expense {
@@ -175,25 +173,8 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
       const autoSyncEnabled = await AsyncStorage.getItem("@auto_sync_enabled");
       if (autoSyncEnabled === "true") {
         try {
-          const lastSyncStr = await AsyncStorage.getItem("@last_sms_sync_time");
-          let minDateMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
-          if (lastSyncStr) minDateMs = parseInt(lastSyncStr, 10);
-          
-          const parsedExpenses = await fetchAndParseSMS(minDateMs);
-          if (parsedExpenses.length > 0) {
-            const deletedStr = await AsyncStorage.getItem("@deleted_sms_ids");
-            const deletedIds = deletedStr ? JSON.parse(deletedStr) : [];
-            
-            for (const e of parsedExpenses) {
-              if (e.smsId) {
-                if (deletedIds.includes(e.smsId)) continue;
-                if (expenses.some((existing) => existing.smsId === e.smsId)) continue;
-                
-                await scheduleSMSApprovalNotification(e);
-              }
-            }
-            await AsyncStorage.setItem("@last_sms_sync_time", Date.now().toString());
-          }
+          await queueSMSApprovalNotifications({ userId: user.uid, existingExpenses: expenses });
+          await registerSMSBackgroundSync();
         } catch (e) {
           console.log("Auto sync check failed", e);
         }

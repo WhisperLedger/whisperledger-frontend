@@ -4,10 +4,12 @@ import React from "react";
 import { Platform, StyleSheet, View } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
+import { isDarkPalette } from "@/utils/designSystem";
 
 export default function TabLayout() {
   const colors = useColors();
   const isIOS = Platform.OS === "ios";
+  const isDark = isDarkPalette(colors);
 
   return (
     <Tabs
@@ -16,7 +18,7 @@ export default function TabLayout() {
         tabBarInactiveTintColor: colors.mutedForeground,
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: colors.card,
+          backgroundColor: isDark ? "rgba(11, 17, 16, 0.98)" : "#FFFFFF",
           borderTopWidth: 1,
           borderTopColor: colors.border,
           height: isIOS ? 84 : 64,
@@ -24,9 +26,16 @@ export default function TabLayout() {
           paddingTop: 10,
           shadowColor: "#000",
           shadowOffset: { width: 0, height: -3 },
-          shadowOpacity: colors.text === "#f8fafc" ? 0.2 : 0.05,
-          shadowRadius: 6,
+          shadowOpacity: isDark ? 0.28 : 0.08,
+          shadowRadius: 14,
           elevation: 8,
+        },
+        tabBarLabelStyle: {
+          fontFamily: "Inter_600SemiBold",
+          fontSize: 11,
+        },
+        tabBarItemStyle: {
+          paddingVertical: 2,
         },
       }}
     >

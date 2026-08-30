@@ -6,15 +6,17 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { useColors } from "@/hooks/useColors";
+import { appGradients, iconSurface, surfaceStyle } from "@/utils/designSystem";
 
 export default function AboutScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const gradients = appGradients(colors);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <LinearGradient
-        colors={colors.text === "#f8fafc" ? ["#0B0D18", "#080A10"] : ["#4f46e5", "#7c3aed"]}
+        colors={gradients.hero}
         style={[styles.header, { paddingTop: insets.top + 16, paddingBottom: 24 }]}
       >
         <View style={styles.headerTop}>
@@ -28,20 +30,20 @@ export default function AboutScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Story Card */}
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.primary }]}>Hi, I'm Tanmay 👋</Text>
+        <View style={[styles.card, surfaceStyle(colors)]}>
+          <Text style={[styles.sectionTitle, { color: colors.primary }]}>Built for daily money clarity</Text>
           
           <Text style={[styles.paragraph, { color: colors.foreground }]}>
-            Before building this app, I struggled with keeping track of my daily expenses. I was forced to use a basic notes app, manually typing out every single date, and then writing down my spends, adding the amounts, and figuring out the categories entirely on my own.
+            WhisperLedger is designed for fast daily expense logging, practical spending visibility, and fewer missed transactions.
           </Text>
           
           <Text style={[styles.paragraph, { color: colors.foreground }]}>
-            This constant unstructured manual typing was incredibly tedious. I wanted a dedicated app where I could easily log expenses with just a few taps, assign them to proper categories, and instantly see a breakdown of my spending habits.
+            The goal is to replace messy notes and spreadsheets with a focused ledger that helps you understand where your money goes.
           </Text>
         </View>
 
         {/* Vision Card */}
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={[styles.card, surfaceStyle(colors)]}>
           <Text style={[styles.sectionTitle, { color: colors.primary }]}>Our Vision</Text>
           <Text style={[styles.paragraph, { color: colors.foreground }]}>
             That's why I created <Text style={{ fontFamily: "Inter_700Bold", color: colors.primary }}>WhisperLedger</Text>. Its core purpose is to provide a clean, beautiful interface for you to log and categorize your daily expenses effortlessly, replacing the mess of a standard notes app.
@@ -49,9 +51,9 @@ export default function AboutScreen() {
         </View>
 
         {/* Feature Callout Card */}
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={[styles.card, surfaceStyle(colors)]}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
-            <View style={[styles.iconBg, { backgroundColor: colors.text === "#f8fafc" ? "rgba(99,102,241,0.15)" : "rgba(99,102,241,0.08)" }]}>
+            <View style={[styles.iconBg, iconSurface(colors, "primary")]}>
               <Feather name="zap" size={16} color={colors.primary} />
             </View>
             <Text style={[styles.cardHeaderTitle, { color: colors.foreground }]}>Bonus Feature</Text>
@@ -64,7 +66,7 @@ export default function AboutScreen() {
         {/* Footer */}
         <View style={styles.footer}>
           <Text style={[styles.footerText, { color: colors.mutedForeground }]}>
-            Made with ❤️ by Tanmay Agarwal
+            Made by Tanmay Agarwal
           </Text>
           <Text style={[styles.footerText, { color: colors.mutedForeground, marginTop: 4 }]}>
             Version 1.0.0
@@ -102,15 +104,8 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   card: {
-    borderRadius: 16,
-    borderWidth: 1,
     padding: 20,
     marginBottom: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 6,
-    elevation: 2,
   },
   sectionTitle: {
     fontSize: 18,

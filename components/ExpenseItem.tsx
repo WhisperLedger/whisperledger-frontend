@@ -14,6 +14,7 @@ import {
 import { CATEGORIES, Expense, useExpenses } from "@/context/ExpenseContext";
 import { useColors } from "@/hooks/useColors";
 import MerchantLogo from "@/components/MerchantLogo";
+import { isDarkPalette, surfaceStyle } from "@/utils/designSystem";
 
 interface Props {
   expense: Expense;
@@ -25,6 +26,7 @@ export default function ExpenseItem({ expense, onEdit }: Props) {
   const { deleteExpense } = useExpenses();
   const cat = CATEGORIES.find((c) => c.id === expense.categoryId) || CATEGORIES.find((c) => c.id === "other")!;
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const isDark = isDarkPalette(colors);
 
   const handlePressIn = () => {
     Animated.spring(scaleAnim, {
@@ -61,16 +63,10 @@ export default function ExpenseItem({ expense, onEdit }: Props) {
     container: {
       flexDirection: "row",
       alignItems: "center",
-      backgroundColor: colors.card,
-      borderRadius: 16,
       padding: 14,
       marginBottom: 8,
       gap: 12,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.04,
-      shadowRadius: 4,
-      elevation: 1,
+      ...surfaceStyle(colors, false),
     },
     iconWrap: {
       width: 46,
@@ -78,7 +74,7 @@ export default function ExpenseItem({ expense, onEdit }: Props) {
       borderRadius: 14,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: colors.text === "#f8fafc" ? `${cat.color}1c` : cat.lightColor,
+      backgroundColor: isDark ? `${cat.color}22` : cat.lightColor,
     },
     info: {
       flex: 1,
@@ -113,7 +109,7 @@ export default function ExpenseItem({ expense, onEdit }: Props) {
       flexDirection: "row",
       alignItems: "center",
       gap: 4,
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.15)" : "#eff6ff",
+      backgroundColor: isDark ? "rgba(45, 212, 191, 0.12)" : "#E8F3EF",
       paddingHorizontal: 10,
       paddingVertical: 5,
       borderRadius: 8,
@@ -122,13 +118,13 @@ export default function ExpenseItem({ expense, onEdit }: Props) {
       fontSize: 11,
       fontFamily: "Inter_600SemiBold",
       fontWeight: "600" as const,
-      color: colors.text === "#f8fafc" ? "#818cf8" : "#3b82f6",
+      color: colors.primary,
     },
     deleteBtn: {
       width: 28,
       height: 28,
       borderRadius: 8,
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(239, 68, 68, 0.15)" : "#fef2f2",
+      backgroundColor: isDark ? "rgba(239, 68, 68, 0.15)" : "#fef2f2",
       alignItems: "center",
       justifyContent: "center",
     },
@@ -217,7 +213,7 @@ export default function ExpenseItem({ expense, onEdit }: Props) {
               onPressOut={handlePressOut}
               activeOpacity={0.8}
             >
-              <Feather name="edit-2" size={11} color={colors.text === "#f8fafc" ? "#818cf8" : "#3b82f6"} />
+              <Feather name="edit-2" size={11} color={colors.primary} />
               <Text style={styles.editBtnText}>Edit</Text>
             </TouchableOpacity>
           )}

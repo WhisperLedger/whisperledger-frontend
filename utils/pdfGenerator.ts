@@ -1,7 +1,6 @@
 import { Alert, Platform } from "react-native";
 import * as Print from "expo-print";
-import * as Sharing from "expo-sharing";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { CATEGORIES } from "@/context/ExpenseContext";
@@ -25,6 +24,135 @@ export interface PDFUser {
   email?: string;
 }
 
+type PDFSaveResult = "success" | "cancelled" | "unsupported" | "error";
+export type PDFGenerationResult = PDFSaveResult | "no_data";
+
+async function writePDFToAndroidFolder(uri: string, fileName: string): Promise<PDFSaveResult> {
+  try {
+    const downloadsUri = FileSystem.StorageAccessFramework.getUriForDirectoryInRoot?.("Download");
+    const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync(downloadsUri);
+
+    if (!permissions.granted) {
+      Alert.alert("Download cancelled", "Folder access is required to save the PDF on this device.");
+      return "cancelled";
+    }
+
+    const targetUri = await FileSystem.StorageAccessFramework.createFileAsync(
+      permissions.directoryUri,
+      fileName,
+      "application/pdf"
+    );
+    const base64Data = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+    await FileSystem.writeAsStringAsync(targetUri, base64Data, { encoding: FileSystem.EncodingType.Base64 });
+    Alert.alert("PDF Downloaded", `${fileName} was saved to the selected folder.`);
+    return "success";
+  } catch (error: any) {
+    console.warn("Save PDF Error:", error);
+    Alert.alert("Save failed", "Could not save the PDF to this device. Please try again.");
+    return "error";
+  }
+}
+
+async function savePDFToDevice(uri: string, fileName: string, monthLabel: string): Promise<PDFSaveResult> {
+  if (Platform.OS !== "android" || !FileSystem.StorageAccessFramework) {
+    Alert.alert(
+      "Download unavailable",
+      "Direct PDF download is only available on Android in this build."
+    );
+    return "unsupported";
+  }
+
+  return new Promise((resolve) => {
+    Alert.alert(
+      "Download PDF Statement",
+      `Your ${monthLabel} statement is ready. Choose a folder on your device to save ${fileName}.`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+          onPress: () => resolve("cancelled"),
+        },
+        {
+          text: "Save to Device",
+          onPress: async () => resolve(await writePDFToAndroidFolder(uri, fileName)),
+        },
+      ]
+    );
+  });
+}
+
+async function queueStatementEmail(params: {
+  year: number;
+  month: number;
+  monthLabel: string;
+  user: PDFUser | null;
+  totalSpend: number;
+  sortedCats: typeof CATEGORIES;
+  catTotals: Record<string, number>;
+  expenses: PDFExpense[];
+}): Promise<boolean> {
+  const { year, month, monthLabel, user, totalSpend, sortedCats, catTotals, expenses } = params;
+  if (!user?.uid || !user.email) {
+    Alert.alert("Email unavailable", "No signed-in email address was found for this account.");
+    return false;
+  }
+
+  try {
+    const requestRef = await addDoc(collection(db, "statement_requests"), {
+      userId: user.uid,
+      userEmail: user.email,
+      userName: user.name || "Valued User",
+      year,
+      month,
+      monthLabel,
+      totalSpend,
+      transactionCount: expenses.length,
+      categoryTotals: sortedCats.map((c) => ({ label: c.label, amount: catTotals[c.id] || 0 })),
+      expenses: expenses.map((e) => ({
+        date: e.date,
+        note: e.note || "Expense",
+        categoryLabel: CATEGORIES.find((c) => c.id === e.categoryId)?.label || "Other",
+        paymentMode: e.paymentMode || "none",
+        amount: Number(e.amount || 0),
+      })),
+      deliveryChannel: "email",
+      source: "pdf_export",
+      createdAt: serverTimestamp(),
+      status: "pending",
+    });
+
+    Alert.alert(
+      "Email queued",
+      `Statement request ${requestRef.id} was queued for ${user.email}.`
+    );
+    return true;
+  } catch (err: any) {
+    console.warn("Queue Email Error:", err);
+    Alert.alert("Email failed", `Could not queue the email: ${err.message || "Unknown error"}`);
+    return false;
+  }
+}
+
+export async function queueMonthlyStatementEmail(
+  year: number,
+  month: number,
+  expenses: PDFExpense[],
+  user: PDFUser | null
+): Promise<"success" | "no_data" | "error"> {
+  if (expenses.length === 0) return "no_data";
+
+  const monthLabel = `${MONTH_NAMES[month - 1]} ${year}`;
+  const totalSpend = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const sortedCats = CATEGORIES.filter((c) => expenses.some((e) => e.categoryId === c.id));
+  const catTotals: Record<string, number> = {};
+  for (const e of expenses) {
+    catTotals[e.categoryId] = (catTotals[e.categoryId] || 0) + Number(e.amount || 0);
+  }
+
+  const queued = await queueStatementEmail({ year, month, monthLabel, user, totalSpend, sortedCats, catTotals, expenses });
+  return queued ? "success" : "error";
+}
+
 export async function generateAndSharePDF(
   year: number,
   month: number,
@@ -32,7 +160,7 @@ export async function generateAndSharePDF(
   user: PDFUser | null,
   onStart?: () => void,
   onEnd?: () => void
-): Promise<"success" | "no_data" | "error"> {
+): Promise<PDFGenerationResult> {
   if (expenses.length === 0) return "no_data";
 
   onStart?.();
@@ -56,7 +184,7 @@ export async function generateAndSharePDF(
       const cat = CATEGORIES.find((c) => c.id === e.categoryId)?.label || "Other";
       const note = (e.note || "Expense").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       const stripe = idx % 2 === 0 ? "#f8fafc" : "#ffffff";
-      return `<tr style="background:${stripe}"><td style="padding:10px 12px;border-bottom:1px solid #e2e8f0">${idx + 1}</td><td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;white-space:nowrap">${e.date}</td><td style="padding:10px 12px;border-bottom:1px solid #e2e8f0">${note}</td><td style="padding:10px 12px;border-bottom:1px solid #e2e8f0">${cat}</td><td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;text-align:center">${(e.paymentMode || "—").toUpperCase()}</td><td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700;color:#0f172a">₹${Number(e.amount || 0).toLocaleString("en-IN")}</td></tr>`;
+      return `<tr style="background:${stripe}"><td style="padding:10px 12px;border-bottom:1px solid #E5E1D8">${idx + 1}</td><td style="padding:10px 12px;border-bottom:1px solid #E5E1D8;white-space:nowrap">${e.date}</td><td style="padding:10px 12px;border-bottom:1px solid #E5E1D8">${note}</td><td style="padding:10px 12px;border-bottom:1px solid #E5E1D8">${cat}</td><td style="padding:10px 12px;border-bottom:1px solid #E5E1D8;text-align:center">${(e.paymentMode || "—").toUpperCase()}</td><td style="padding:10px 12px;border-bottom:1px solid #E5E1D8;text-align:right;font-weight:700;color:#17211F">₹${Number(e.amount || 0).toLocaleString("en-IN")}</td></tr>`;
     }).join("");
 
     const catRows = sortedCats
@@ -65,7 +193,7 @@ export async function generateAndSharePDF(
       .map((cat, idx) => {
         const pct = totalSpend > 0 ? Math.round(((catTotals[cat.id] || 0) / totalSpend) * 100) : 0;
         const stripe = idx % 2 === 0 ? "#f8fafc" : "#ffffff";
-        return `<tr style="background:${stripe}"><td style="padding:9px 12px;border-bottom:1px solid #e2e8f0">${cat.label}</td><td style="padding:9px 12px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700">₹${Number(catTotals[cat.id] || 0).toLocaleString("en-IN")}</td><td style="padding:9px 12px;border-bottom:1px solid #e2e8f0;text-align:center;color:#64748b">${pct}%</td></tr>`;
+        return `<tr style="background:${stripe}"><td style="padding:9px 12px;border-bottom:1px solid #E5E1D8">${cat.label}</td><td style="padding:9px 12px;border-bottom:1px solid #E5E1D8;text-align:right;font-weight:700">₹${Number(catTotals[cat.id] || 0).toLocaleString("en-IN")}</td><td style="padding:9px 12px;border-bottom:1px solid #E5E1D8;text-align:center;color:#68736F">${pct}%</td></tr>`;
       }).join("");
 
     const topCat = sortedCats.sort((a, b) => (catTotals[b.id] || 0) - (catTotals[a.id] || 0))[0];
@@ -75,30 +203,30 @@ export async function generateAndSharePDF(
     const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Helvetica Neue',Arial,sans-serif;background:#f1f5f9;color:#0f172a;padding:0}
+  body{font-family:'Helvetica Neue',Arial,sans-serif;background:#F7F4EF;color:#17211F;padding:0}
   .page{max-width:800px;margin:0 auto;background:#fff}
-  .header-band{background:#1e3a8a;padding:36px 40px 28px;color:#fff}
+  .header-band{background:#0F766E;padding:36px 40px 28px;color:#fff}
   .bank-name{font-size:11px;letter-spacing:3px;text-transform:uppercase;opacity:.7;margin-bottom:8px}
   .doc-title{font-size:26px;font-weight:700;letter-spacing:-.5px}
   .doc-subtitle{font-size:13px;opacity:.75;margin-top:4px}
   .header-meta{display:flex;justify-content:space-between;align-items:flex-end;margin-top:24px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.2)}
   .meta-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;opacity:.6;margin-bottom:4px}
   .meta-val{font-size:14px;font-weight:600}
-  .summary-bar{display:flex;background:#0f172a;padding:0}
+  .summary-bar{display:flex;background:#17211F;padding:0}
   .sum-cell{flex:1;padding:20px 24px;border-right:1px solid rgba(255,255,255,0.08)}
   .sum-cell:last-child{border-right:none}
-  .sum-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#94a3b8;margin-bottom:6px}
+  .sum-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#9AA7A2;margin-bottom:6px}
   .sum-val{font-size:20px;font-weight:700;color:#fff}
-  .sum-note{font-size:10px;color:#64748b;margin-top:2px}
+  .sum-note{font-size:10px;color:#68736F;margin-top:2px}
   .section{padding:28px 40px}
-  .section-title{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#64748b;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #e2e8f0}
+  .section-title{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#68736F;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #E5E1D8}
   table{width:100%;border-collapse:collapse;font-size:12.5px}
-  thead tr{background:#1e3a8a;color:#fff}
+  thead tr{background:#0F766E;color:#fff}
   thead th{padding:10px 12px;text-align:left;font-weight:600;font-size:10px;letter-spacing:.5px;text-transform:uppercase}
   thead th:last-child{text-align:right}
-  .footer{background:#0f172a;padding:20px 40px;display:flex;justify-content:space-between;align-items:center}
+  .footer{background:#17211F;padding:20px 40px;display:flex;justify-content:space-between;align-items:center}
   .footer-brand{color:#fff;font-size:13px;font-weight:700;letter-spacing:1px}
-  .footer-note{color:#64748b;font-size:10px;text-align:right}
+  .footer-note{color:#68736F;font-size:10px;text-align:right}
 </style></head><body>
 <div class="page">
   <div class="header-band">
@@ -119,13 +247,13 @@ export async function generateAndSharePDF(
   <div class="section">
     <div class="section-title">Category Breakdown</div>
     <table><thead><tr><th>Category</th><th style="text-align:right">Amount</th><th style="text-align:center">Share</th></tr></thead>
-    <tbody>${catRows || "<tr><td colspan='3' style='padding:12px;text-align:center;color:#94a3b8'>No data</td></tr>"}</tbody></table>
+    <tbody>${catRows || "<tr><td colspan='3' style='padding:12px;text-align:center;color:#9AA7A2'>No data</td></tr>"}</tbody></table>
   </div>
   <div class="section" style="padding-top:0">
     <div class="section-title">Transaction Details</div>
     <table><thead><tr><th>#</th><th>Date</th><th>Description</th><th>Category</th><th style="text-align:center">Mode</th><th style="text-align:right">Amount</th></tr></thead>
     <tbody>${rows}</tbody>
-    <tfoot><tr style="background:#eff6ff"><td colspan="5" style="padding:10px 12px;font-weight:700;font-size:13px">TOTAL</td><td style="padding:10px 12px;text-align:right;font-weight:700;font-size:14px;color:#1e3a8a">₹${Number(totalSpend || 0).toLocaleString("en-IN")}</td></tr></tfoot></table>
+    <tfoot><tr style="background:#E8F3EF"><td colspan="5" style="padding:10px 12px;font-weight:700;font-size:13px">TOTAL</td><td style="padding:10px 12px;text-align:right;font-weight:700;font-size:14px;color:#0F766E">₹${Number(totalSpend || 0).toLocaleString("en-IN")}</td></tr></tfoot></table>
   </div>
   <div class="footer">
     <div class="footer-brand">WhisperLedger</div>
@@ -150,69 +278,7 @@ export async function generateAndSharePDF(
     );
     const { uri } = await Promise.race([printPromise, timeoutPromise]);
 
-    Alert.alert(
-      "📄 PDF Ready!",
-      `Your ${monthLabel} statement is ready. What would you like to do?`,
-      [
-        {
-          text: "💾 Save / Share",
-          onPress: async () => {
-            try {
-              const fs = FileSystem as any;
-              if (Platform.OS === "android" && fs?.StorageAccessFramework) {
-                const perms = await fs.StorageAccessFramework.requestDirectoryPermissionsAsync();
-                if (perms.granted) {
-                  const fileUri = await fs.StorageAccessFramework.createFileAsync(
-                    perms.directoryUri, fileName, "application/pdf"
-                  );
-                  const base64Data = await FileSystem.readAsStringAsync(uri, { encoding: "base64" });
-                  await FileSystem.writeAsStringAsync(fileUri, base64Data, { encoding: "base64" });
-                  Alert.alert("✅ Saved!", "Statement saved to your chosen folder.");
-                  return;
-                }
-              }
-              await Sharing.shareAsync(uri);
-            } catch {
-              await Sharing.shareAsync(uri);
-            }
-          },
-        },
-        {
-          text: "📧 Email to Me",
-          onPress: async () => {
-            if (!user?.email) {
-              Alert.alert("Error", "No email address found on your account.");
-              return;
-            }
-            try {
-              await addDoc(collection(db, "statement_requests"), {
-                userId: user.uid,
-                userEmail: user.email,
-                userName: user.name || "Valued User",
-                monthLabel,
-                totalSpend,
-                transactionCount: expenses.length,
-                categoryTotals: sortedCats.map((c) => ({ label: c.label, amount: catTotals[c.id] || 0 })),
-                expenses: expenses.map((e) => ({
-                  date: e.date,
-                  note: e.note || "Expense",
-                  categoryLabel: CATEGORIES.find((c) => c.id === e.categoryId)?.label || "Other",
-                  paymentMode: e.paymentMode || "none",
-                  amount: e.amount,
-                })),
-                createdAt: serverTimestamp(),
-                status: "pending",
-              });
-              Alert.alert("📧 Email Queued", `Your statement will be delivered to ${user.email} shortly.`);
-            } catch (err: any) {
-              Alert.alert("Failed", "Could not queue the email: " + err.message);
-            }
-          },
-        },
-        { text: "Cancel", style: "cancel" },
-      ]
-    );
-    return "success";
+    return await savePDFToDevice(uri, fileName, monthLabel);
   } catch (e: any) {
     console.warn("PDF generation error:", e);
     return "error";

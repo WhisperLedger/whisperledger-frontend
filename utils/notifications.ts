@@ -10,6 +10,8 @@ export const SMS_APPROVAL_CATEGORY = "sms_approval";
 export const DAILY_REMINDER_TYPE = "daily_reminder";
 export const SMS_APPROVAL_TYPE = "sms_approval";
 const DAILY_REMINDER_NOTIFICATION_ID_KEY = "@daily_reminder_notification_id";
+const PENDING_SMS_APPROVAL_IDS_KEY = "@pending_sms_approval_ids";
+const PROCESSED_SMS_APPROVAL_IDS_KEY = "@processed_sms_approval_ids";
 
 export enum SMSAction {
   APPROVE = "approve",
@@ -25,6 +27,43 @@ export type SMSApprovalPayload = {
   paymentMode: PaymentMode;
   note: string;
 };
+
+async function readStringSet(key: string): Promise<Set<string>> {
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+async function writeStringSet(key: string, values: Set<string>) {
+  await AsyncStorage.setItem(key, JSON.stringify(Array.from(values)));
+}
+
+export async function hasSMSApprovalBeenQueuedOrProcessed(smsId?: string | null): Promise<boolean> {
+  if (!smsId) return false;
+  const [pending, processed] = await Promise.all([
+    readStringSet(PENDING_SMS_APPROVAL_IDS_KEY),
+    readStringSet(PROCESSED_SMS_APPROVAL_IDS_KEY),
+  ]);
+  return pending.has(smsId) || processed.has(smsId);
+}
+
+export async function markSMSApprovalProcessed(smsId?: string | null) {
+  if (!smsId) return;
+  const [pending, processed] = await Promise.all([
+    readStringSet(PENDING_SMS_APPROVAL_IDS_KEY),
+    readStringSet(PROCESSED_SMS_APPROVAL_IDS_KEY),
+  ]);
+  pending.delete(smsId);
+  processed.add(smsId);
+  await Promise.all([
+    writeStringSet(PENDING_SMS_APPROVAL_IDS_KEY, pending),
+    writeStringSet(PROCESSED_SMS_APPROVAL_IDS_KEY, processed),
+  ]);
+}
 
 function getNotificationsModule() {
   try {
@@ -43,12 +82,12 @@ export async function setupNotifications() {
     {
       identifier: SMSAction.APPROVE,
       buttonTitle: "Approve",
-      options: { opensAppToForeground: false },
+      options: { opensAppToForeground: true },
     },
     {
       identifier: SMSAction.DISCARD,
       buttonTitle: "Discard",
-      options: { opensAppToForeground: false, isDestructive: true },
+      options: { opensAppToForeground: true, isDestructive: true },
     },
   ]);
 
@@ -88,17 +127,33 @@ export async function requestNotificationPermissions() {
 
 export async function scheduleSMSApprovalNotification(transaction: SMSApprovalPayload) {
   const Notifications = getNotificationsModule();
-  if (!Notifications) return;
+  if (!Notifications) return null;
 
-  await Notifications.scheduleNotificationAsync({
+  if (await hasSMSApprovalBeenQueuedOrProcessed(transaction.smsId)) return null;
+
+  const notificationId = await Notifications.scheduleNotificationAsync({
     content: {
       title: "New Transaction Detected",
       body: `Spent Rs ${transaction.amount} at ${transaction.merchant}. Approve?`,
       categoryIdentifier: SMS_APPROVAL_CATEGORY,
-      data: { ...transaction, notificationType: SMS_APPROVAL_TYPE },
+      data: {
+        ...transaction,
+        notificationType: SMS_APPROVAL_TYPE,
+        isLocalOnly: true,
+        smsApproval: true,
+      },
+      sound: true,
+      priority: "high",
+      channelId: "default",
     },
     trigger: null,
   });
+
+  const pending = await readStringSet(PENDING_SMS_APPROVAL_IDS_KEY);
+  pending.add(transaction.smsId);
+  await writeStringSet(PENDING_SMS_APPROVAL_IDS_KEY, pending);
+
+  return notificationId;
 }
 
 export async function scheduleDailyExpenseReminder(hour: number, minute: number) {

@@ -47,6 +47,13 @@
       "expo-font",
       "expo-web-browser",
       [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow WhisperLedger to use the microphone for chatbot voice commands.",
+          "speechRecognitionPermission": "Allow WhisperLedger to convert your voice commands into text."
+        }
+      ],
+      [
         "expo-notifications",
         {
           "icon": "./assets/images/icon.png",

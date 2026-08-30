@@ -6,6 +6,7 @@ import React, { useState } from "react";
 import {
   Alert,
   Image,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -22,10 +23,11 @@ import PrivacyConsentModal from "@/components/PrivacyConsentModal";
 import SupportModal from "@/components/SupportModal";
 
 import { useAuth } from "@/context/AuthContext";
-import { useExpenses } from "@/context/ExpenseContext";
 import { useColors } from "@/hooks/useColors";
-import { fetchAndParseSMS, isSmsAutoSyncAvailable, requestSmsPermission } from "@/utils/smsParser";
+import { isSmsAutoSyncAvailable, requestSmsPermission } from "@/utils/smsParser";
+import { queueSMSApprovalNotifications, registerSMSBackgroundSync, unregisterSMSBackgroundSync } from "@/utils/smsSync";
 import { useTheme } from "@/context/ThemeContext";
+import { appGradients, iconSurface, isDarkPalette, surfaceStyle } from "@/utils/designSystem";
 
 interface MenuItemProps {
   icon: string;
@@ -56,19 +58,19 @@ function MenuItem({ icon, label, sublabel, onPress, danger, rightText, rightElem
           width: 38,
           height: 38,
           borderRadius: 11,
-          backgroundColor: danger 
-            ? (colors.text === "#f8fafc" ? "rgba(239, 68, 68, 0.12)" : "#fee2e2")
-            : (colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.08)" : colors.muted),
+          backgroundColor: danger
+            ? (colors.text === "#f8fafc" || colors.text === "#F8FAF7" ? "rgba(239, 68, 68, 0.12)" : "#fee2e2")
+            : colors.muted,
           alignItems: "center",
           justifyContent: "center",
-          borderWidth: colors.text === "#f8fafc" ? 1 : 0,
-          borderColor: danger ? "rgba(239, 68, 68, 0.25)" : "rgba(99, 102, 241, 0.2)",
+          borderWidth: colors.text === "#f8fafc" || colors.text === "#F8FAF7" ? 1 : 0,
+          borderColor: danger ? "rgba(239, 68, 68, 0.25)" : colors.border,
         }}
       >
         <Feather 
           name={icon as any} 
           size={18} 
-          color={danger ? "#ef4444" : (colors.text === "#f8fafc" ? "#818cf8" : colors.mutedForeground)} 
+          color={danger ? "#ef4444" : colors.primary}
         />
       </View>
       <View style={{ flex: 1 }}>
@@ -116,13 +118,18 @@ export default function ProfileScreen() {
   const { theme, setTheme } = useTheme();
   const insets = useSafeAreaInsets();
   const { user, logout, updateProfile } = useAuth();
-  const { addMultipleExpenses } = useExpenses();
+  const isDark = isDarkPalette(colors);
+  const gradients = appGradients(colors);
 
   const [editingName, setEditingName] = useState(false);
   const [nameVal, setNameVal] = useState(user?.name || "");
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [showSupportModal, setShowSupportModal] = useState(false);
+  const [showAvatarOptions, setShowAvatarOptions] = useState(false);
+  const [pendingAvatar, setPendingAvatar] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [showAvatarPreview, setShowAvatarPreview] = useState(false);
+  const [savingAvatar, setSavingAvatar] = useState(false);
 
   React.useEffect(() => {
     setAvatarLoadFailed(false);
@@ -145,6 +152,7 @@ export default function ProfileScreen() {
   const MAX_PROFILE_PHOTO_BYTES = MAX_PROFILE_PHOTO_MB * 1024 * 1024;
 
   const pickAvatar = async () => {
+    setShowAvatarOptions(false);
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permission needed", "Allow access to your photos to set a profile picture.");
@@ -152,9 +160,8 @@ export default function ProfileScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
+      allowsEditing: false,
+      quality: 0.9,
     });
     if (!result.canceled && result.assets[0]) {
       const pickedImage = result.assets[0];
@@ -165,51 +172,35 @@ export default function ProfileScreen() {
         );
         return;
       }
-      await updateProfile({ avatarUri: pickedImage.uri });
-      setAvatarLoadFailed(false);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setPendingAvatar(pickedImage);
+      setShowAvatarPreview(true);
     }
+  };
+
+  const savePendingAvatar = async () => {
+    if (!pendingAvatar || savingAvatar) return;
+    setSavingAvatar(true);
+    try {
+      await updateProfile({ avatarUri: pendingAvatar.uri });
+      setAvatarLoadFailed(false);
+      setShowAvatarPreview(false);
+      setPendingAvatar(null);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } finally {
+      setSavingAvatar(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    setShowAvatarOptions(false);
+    await updateProfile({ avatarUri: "" });
+    setAvatarLoadFailed(false);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const handleAvatarPress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const hasPhoto = !!user?.avatarUri && !avatarLoadFailed;
-    
-    Alert.alert(
-      "Profile Picture",
-      "Choose an action:",
-      hasPhoto
-        ? [
-            { text: "📸 Select from Library", onPress: pickAvatar },
-            {
-              text: "🗑️ Remove Photo",
-              style: "destructive",
-              onPress: () => {
-                Alert.alert(
-                  "Remove Photo",
-                  "Are you sure you want to remove your profile photo?",
-                  [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                      text: "Remove",
-                      style: "destructive",
-                      onPress: async () => {
-                        await updateProfile({ avatarUri: "" });
-                        setAvatarLoadFailed(false);
-                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                      },
-                    },
-                  ]
-                );
-              },
-            },
-            { text: "Cancel", style: "cancel" },
-          ]
-        : [
-            { text: "📸 Select from Library", onPress: pickAvatar },
-            { text: "Cancel", style: "cancel" },
-          ]
-    );
+    setShowAvatarOptions(true);
   };
 
   const handleLogout = async () => {
@@ -240,6 +231,7 @@ export default function ProfileScreen() {
     if (!newValue) {
       setAutoSyncEnabled(false);
       await AsyncStorage.setItem("@auto_sync_enabled", "false");
+      await unregisterSMSBackgroundSync();
       return;
     }
     setShowConsentModal(true);
@@ -263,16 +255,9 @@ export default function ProfileScreen() {
       setAutoSyncEnabled(true);
       await AsyncStorage.setItem("@auto_sync_enabled", "true");
 
-      const lastSyncStr = await AsyncStorage.getItem("@last_sms_sync_time");
-      let minDateMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
-      if (lastSyncStr) {
-        minDateMs = parseInt(lastSyncStr, 10);
-      }
-
-      const parsedExpenses = await fetchAndParseSMS(minDateMs);
-      if (parsedExpenses.length > 0) {
-        await addMultipleExpenses(parsedExpenses);
-        await AsyncStorage.setItem("@last_sms_sync_time", Date.now().toString());
+      const result = await queueSMSApprovalNotifications({ userId: user?.uid, initialLookback: true });
+      await registerSMSBackgroundSync();
+      if (result.queued > 0) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     } catch (err: any) {
@@ -304,7 +289,7 @@ export default function ProfileScreen() {
       width: 88,
       height: 88,
       borderRadius: 28,
-      backgroundColor: "rgba(255,255,255,0.2)",
+      backgroundColor: isDark ? "rgba(248,250,247,0.08)" : "rgba(255,255,255,0.72)",
       alignItems: "center",
       justifyContent: "center",
       overflow: "hidden",
@@ -323,7 +308,7 @@ export default function ProfileScreen() {
       width: 28,
       height: 28,
       borderRadius: 9,
-      backgroundColor: "#fff",
+      backgroundColor: colors.card,
       alignItems: "center",
       justifyContent: "center",
       shadowColor: "#000",
@@ -370,7 +355,7 @@ export default function ProfileScreen() {
       fontSize: 14,
       fontWeight: "600" as const,
       fontFamily: "Inter_600SemiBold",
-      color: colors.text === "#f8fafc" ? "#38bdf8" : "#e0e7ff",
+      color: isDark ? "#5EEAD4" : "#115E59",
       textAlign: "center",
       marginBottom: 4,
     },
@@ -378,22 +363,14 @@ export default function ProfileScreen() {
       fontSize: 13,
       fontWeight: "400" as const,
       fontFamily: "Inter_400Regular",
-      color: "rgba(255,255,255,0.72)",
+      color: isDark ? "rgba(248,250,247,0.72)" : "rgba(23,33,31,0.70)",
       textAlign: "center",
     },
     section: {
-      backgroundColor: colors.card,
-      borderRadius: 16,
       marginHorizontal: 16,
       marginTop: 16,
       overflow: "hidden",
-      borderWidth: colors.text === "#f8fafc" ? 1 : 0,
-      borderColor: colors.border,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: colors.text === "#f8fafc" ? 0.15 : 0.04,
-      shadowRadius: 10,
-      elevation: 3,
+      ...surfaceStyle(colors),
     },
     sectionLabel: {
       fontSize: 11,
@@ -408,13 +385,177 @@ export default function ProfileScreen() {
     scrollContent: {
       paddingBottom: Platform.OS === "web" ? 34 + 84 : insets.bottom + 84,
     },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(15, 23, 42, 0.52)",
+      justifyContent: "flex-end",
+    },
+    sheet: {
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingHorizontal: 18,
+      paddingTop: 10,
+      paddingBottom: insets.bottom + 18,
+      ...surfaceStyle(colors),
+    },
+    sheetHandle: {
+      width: 42,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.border,
+      alignSelf: "center",
+      marginBottom: 16,
+    },
+    sheetTitle: {
+      fontSize: 18,
+      fontWeight: "700" as const,
+      fontFamily: "Inter_700Bold",
+      color: colors.foreground,
+      textAlign: "center",
+    },
+    sheetSubtitle: {
+      fontSize: 13,
+      fontFamily: "Inter_400Regular",
+      color: colors.mutedForeground,
+      textAlign: "center",
+      marginTop: 6,
+      marginBottom: 18,
+      lineHeight: 18,
+    },
+    sheetAction: {
+      minHeight: 54,
+      borderRadius: 14,
+      backgroundColor: isDark ? "rgba(248,250,247,0.05)" : colors.muted,
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 14,
+      gap: 12,
+      marginBottom: 10,
+    },
+    sheetActionIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      alignItems: "center",
+      justifyContent: "center",
+      ...iconSurface(colors),
+    },
+    sheetActionText: {
+      flex: 1,
+      fontSize: 15,
+      fontWeight: "700" as const,
+      fontFamily: "Inter_700Bold",
+      color: colors.foreground,
+    },
+    sheetCancel: {
+      minHeight: 50,
+      borderRadius: 14,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 4,
+    },
+    sheetCancelText: {
+      fontSize: 15,
+      fontWeight: "700" as const,
+      fontFamily: "Inter_700Bold",
+      color: colors.mutedForeground,
+    },
+    dangerText: {
+      color: "#ef4444",
+    },
+    previewBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(15, 23, 42, 0.72)",
+      justifyContent: "center",
+      paddingHorizontal: 20,
+    },
+    previewCard: {
+      borderRadius: 24,
+      padding: 18,
+      ...surfaceStyle(colors),
+    },
+    previewTitle: {
+      fontSize: 18,
+      fontWeight: "700" as const,
+      fontFamily: "Inter_700Bold",
+      color: colors.foreground,
+      textAlign: "center",
+    },
+    previewSubtitle: {
+      fontSize: 13,
+      color: colors.mutedForeground,
+      fontFamily: "Inter_400Regular",
+      textAlign: "center",
+      marginTop: 6,
+      marginBottom: 16,
+      lineHeight: 18,
+    },
+    avatarPreviewFrame: {
+      width: "100%",
+      aspectRatio: 1,
+      maxHeight: 360,
+      borderRadius: 28,
+      overflow: "hidden",
+      alignSelf: "center",
+      backgroundColor: colors.muted,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    avatarPreviewImage: {
+      width: "100%",
+      height: "100%",
+    },
+    previewMeta: {
+      color: colors.mutedForeground,
+      fontSize: 12,
+      fontFamily: "Inter_500Medium",
+      textAlign: "center",
+      marginTop: 12,
+    },
+    previewActions: {
+      flexDirection: "row",
+      gap: 10,
+      marginTop: 18,
+    },
+    previewSecondaryBtn: {
+      flex: 1,
+      minHeight: 48,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    previewPrimaryBtn: {
+      flex: 1,
+      minHeight: 48,
+      borderRadius: 14,
+      overflow: "hidden",
+    },
+    previewPrimaryGrad: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    previewSecondaryText: {
+      fontSize: 14,
+      fontWeight: "700" as const,
+      fontFamily: "Inter_700Bold",
+      color: colors.foreground,
+    },
+    previewPrimaryText: {
+      fontSize: 14,
+      fontWeight: "700" as const,
+      fontFamily: "Inter_700Bold",
+      color: "#fff",
+    },
   });
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <LinearGradient
-          colors={colors.text === "#f8fafc" ? ["#1e1b4b", "#080A10"] : ["#4f46e5", "#7c3aed"]}
+          colors={gradients.hero}
           style={styles.headerGrad}
         >
           <Text style={styles.headerTitle}>Profile</Text>
@@ -430,13 +571,13 @@ export default function ProfileScreen() {
                   />
                 ) : (
                   <Image
-                    source={getFallbackAvatar(colors.text === "#f8fafc")}
+                    source={getFallbackAvatar(isDark)}
                     style={styles.avatarImage}
                   />
                 )}
               </View>
               <View style={styles.cameraBtn}>
-                <Feather name="camera" size={13} color="#4f46e5" />
+                <Feather name="camera" size={13} color={colors.primary} />
               </View>
             </TouchableOpacity>
           </View>
@@ -548,6 +689,121 @@ export default function ProfileScreen() {
         visible={showSupportModal}
         onClose={() => setShowSupportModal(false)}
       />
+
+      <Modal
+        visible={showAvatarOptions}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAvatarOptions(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowAvatarOptions(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Profile Photo</Text>
+            <Text style={styles.sheetSubtitle}>
+              Choose a photo and preview the avatar before saving it.
+            </Text>
+
+            <TouchableOpacity style={styles.sheetAction} activeOpacity={0.8} onPress={pickAvatar}>
+              <View style={styles.sheetActionIcon}>
+                <Feather name="image" size={18} color={colors.primary} />
+              </View>
+              <Text style={styles.sheetActionText}>Choose from Photos</Text>
+              <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+            </TouchableOpacity>
+
+            {!!user?.avatarUri && !avatarLoadFailed && (
+              <TouchableOpacity style={styles.sheetAction} activeOpacity={0.8} onPress={removeAvatar}>
+                <View style={[styles.sheetActionIcon, { backgroundColor: "rgba(239, 68, 68, 0.12)" }]}>
+                  <Feather name="trash-2" size={18} color="#ef4444" />
+                </View>
+                <Text style={[styles.sheetActionText, styles.dangerText]}>Remove Photo</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.sheetCancel}
+              activeOpacity={0.8}
+              onPress={() => setShowAvatarOptions(false)}
+            >
+              <Text style={styles.sheetCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal
+        visible={showAvatarPreview}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!savingAvatar) {
+            setShowAvatarPreview(false);
+            setPendingAvatar(null);
+          }
+        }}
+      >
+        <View style={styles.previewBackdrop}>
+          <View style={styles.previewCard}>
+            <Text style={styles.previewTitle}>Preview Photo</Text>
+            <Text style={styles.previewSubtitle}>
+              This is how the image will appear on your profile.
+            </Text>
+
+            <View style={styles.avatarPreviewFrame}>
+              {!!pendingAvatar?.uri && (
+                <Image
+                  source={{ uri: pendingAvatar.uri }}
+                  style={styles.avatarPreviewImage}
+                  resizeMode="cover"
+                />
+              )}
+            </View>
+
+            {!!pendingAvatar?.width && !!pendingAvatar?.height && (
+              <Text style={styles.previewMeta}>
+                {pendingAvatar.width} x {pendingAvatar.height}px
+              </Text>
+            )}
+
+            <View style={styles.previewActions}>
+              <TouchableOpacity
+                style={styles.previewSecondaryBtn}
+                activeOpacity={0.8}
+                disabled={savingAvatar}
+                onPress={() => {
+                  setShowAvatarPreview(false);
+                  setPendingAvatar(null);
+                  pickAvatar();
+                }}
+              >
+                <Text style={styles.previewSecondaryText}>Choose Again</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.previewPrimaryBtn, savingAvatar && { opacity: 0.75 }]}
+                activeOpacity={0.8}
+                disabled={savingAvatar}
+                onPress={savePendingAvatar}
+              >
+                <LinearGradient
+                  colors={gradients.primary}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.previewPrimaryGrad}
+                >
+                  <Text style={styles.previewPrimaryText}>
+                    {savingAvatar ? "Saving..." : "Use Photo"}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

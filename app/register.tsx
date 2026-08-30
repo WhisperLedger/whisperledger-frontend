@@ -20,7 +20,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { safeHaptics } from "@/utils/haptics";
 import { validatePassword } from "@/utils/passwordValidator";
-import { validateEmail } from "@/utils/validation";
+import { validateEmail, validateFullName, validateUsername } from "@/utils/validation";
 
 function translateAuthError(rawError: string | object): string {
   if (!rawError) return "An unexpected error occurred. Please try again.";
@@ -77,7 +77,11 @@ export default function RegisterScreen() {
 
   const pwdValidation = validatePassword(password);
   const emailCheck = validateEmail(email.trim());
+  const nameCheck = validateFullName(name.trim());
+  const usernameCheck = validateUsername(username.trim());
+  const isNameValid = name.trim().length > 0 && nameCheck.isValid;
   const isEmailValid = email.trim().length > 0 && emailCheck.isValid;
+  const isUsernameValid = username.trim().length > 0 && usernameCheck.isValid;
 
   const handleRegister = async () => {
     setError("");
@@ -86,8 +90,18 @@ export default function RegisterScreen() {
       return;
     }
 
+    if (!isNameValid) {
+      setError(nameCheck.error || "Please enter your full name.");
+      return;
+    }
+
     if (!isEmailValid) {
       setError(emailCheck.error || "Please enter a valid email address.");
+      return;
+    }
+
+    if (!isUsernameValid) {
+      setError(usernameCheck.error || "Please enter a valid username.");
       return;
     }
 
@@ -105,13 +119,7 @@ export default function RegisterScreen() {
     const result = await register(username.trim(), password, name.trim(), email.trim());
     setLoading(false);
     if (result.success) {
-      router.replace({
-        pathname: "/login",
-        params: {
-          email: email.trim().toLowerCase(),
-          verificationSent: "true",
-        },
-      });
+      setVerificationSent(true);
     } else {
       setError(translateAuthError(result.error || "Registration failed"));
     }
@@ -254,7 +262,7 @@ export default function RegisterScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={colors.text === "#f8fafc" ? ["#0B0D18", "#080A10"] : ["#E5E7EB", "#F3F4F6"]} style={styles.gradient}>
+      <LinearGradient colors={colors.text === "#f8fafc" ? ["#080D0C", "#0F1B18"] : ["#F7F4EF", "#EFE8DD"]} style={styles.gradient}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}>
           <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: 80 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <View style={styles.inner}>
@@ -277,7 +285,7 @@ export default function RegisterScreen() {
                   </View>
                   <Text style={[styles.heading, { fontSize: 20, textAlign: "center", marginBottom: 8 }]}>Verification Email Sent! 📩</Text>
                   <Text style={[styles.subheading, { textAlign: "center", marginBottom: 24, paddingHorizontal: 12 }]}>
-                    We have sent a verification link to <Text style={{ color: "#6366f1", fontWeight: "700" }}>{email}</Text>. Please open your email inbox and click the verification link to activate your account.
+                    We have sent a verification link to <Text style={{ color: colors.primary, fontWeight: "700" }}>{email}</Text>. Please open your email inbox and click the verification link to activate your account.
                   </Text>
                   <TouchableOpacity
                     style={[styles.registerBtn, { width: "100%" }]}
@@ -308,7 +316,7 @@ export default function RegisterScreen() {
                   <TextInput
                     style={styles.input}
                     value={email}
-                    onChangeText={setEmail}
+                    onChangeText={(value) => setEmail(value.trim())}
                     placeholder="your@email.com"
                     placeholderTextColor={colors.mutedForeground}
                     keyboardType="email-address"
@@ -323,7 +331,7 @@ export default function RegisterScreen() {
                   <TextInput
                     style={styles.input}
                     value={username}
-                    onChangeText={setUsername}
+                    onChangeText={(value) => setUsername(value.trim().toLowerCase())}
                     placeholder="Choose a username"
                     placeholderTextColor={colors.mutedForeground}
                     autoCapitalize="none"
@@ -391,8 +399,8 @@ export default function RegisterScreen() {
                       height: 20,
                       borderRadius: 5,
                       borderWidth: 2,
-                      borderColor: agreeTerms ? "#6366f1" : colors.border,
-                      backgroundColor: agreeTerms ? "#6366f1" : "transparent",
+                      borderColor: agreeTerms ? colors.primary : colors.border,
+                      backgroundColor: agreeTerms ? colors.primary : "transparent",
                       alignItems: "center",
                       justifyContent: "center",
                     }}
@@ -417,9 +425,9 @@ export default function RegisterScreen() {
                     {
                       opacity:
                         loading ||
-                        !name.trim() ||
+                        !isNameValid ||
                         !isEmailValid ||
-                        !username.trim() ||
+                        !isUsernameValid ||
                         !pwdValidation.isValid ||
                         !agreeTerms
                           ? 0.4
@@ -429,9 +437,9 @@ export default function RegisterScreen() {
                   onPress={handleRegister}
                   disabled={
                     loading ||
-                    !name.trim() ||
+                    !isNameValid ||
                     !isEmailValid ||
-                    !username.trim() ||
+                    !isUsernameValid ||
                     !pwdValidation.isValid ||
                     !agreeTerms
                   }

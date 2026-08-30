@@ -24,6 +24,7 @@ import { useAuth } from "@/context/AuthContext";
 import { CATEGORIES, CategoryId, Expense, useExpenses } from "@/context/ExpenseContext";
 import { useColors } from "@/hooks/useColors";
 import { db } from "@/lib/firebase";
+import { appGradients, bottomInset, iconSurface, isDarkPalette, surfaceStyle } from "@/utils/designSystem";
 
 function todayISO() {
   const d = new Date();
@@ -70,7 +71,9 @@ export default function HomeScreen() {
   const dailyTotal = getTotalForDate(selectedDate);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
-  const bottomPad = Platform.OS === "web" ? 34 + 84 : insets.bottom + 84;
+  const bottomPad = bottomInset(insets.bottom);
+  const isDark = isDarkPalette(colors);
+  const gradients = appGradients(colors);
 
   useEffect(() => {
     if (!user) return;
@@ -103,7 +106,7 @@ export default function HomeScreen() {
     gradHeader: {
       paddingTop: topPad + 16,
       paddingHorizontal: 20,
-      paddingBottom: 24,
+      paddingBottom: 26,
     },
     greetRow: {
       flexDirection: "row",
@@ -113,39 +116,31 @@ export default function HomeScreen() {
     },
     greeting: {
       fontSize: 14,
-      color: colors.text === "#f8fafc" ? "rgba(255,255,255,0.75)" : "rgba(15, 23, 42, 0.6)",
+      color: isDark ? "rgba(248,250,247,0.72)" : colors.mutedForeground,
       fontFamily: "Inter_400Regular",
     },
     headerTitle: {
       fontSize: 22,
       fontWeight: "700" as const,
       fontFamily: "Inter_700Bold",
-      color: colors.text === "#f8fafc" ? "#fff" : colors.foreground,
+      color: colors.foreground,
     },
     totalWrap: {
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(14, 17, 31, 0.75)" : "#ffffff",
-      borderRadius: 20,
       padding: 18,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      borderWidth: 1,
-      borderColor: colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.3)" : colors.border,
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: colors.text === "#f8fafc" ? 0.1 : 0.06,
-      shadowRadius: 12,
-      elevation: 4,
+      ...surfaceStyle(colors),
     },
     totalLabel: {
       fontSize: 12,
-      color: colors.text === "#f8fafc" ? "rgba(255,255,255,0.7)" : "rgba(15, 23, 42, 0.55)",
+      color: colors.mutedForeground,
       fontFamily: "Inter_500Medium",
       letterSpacing: 0.4,
     },
     totalDate: {
       fontSize: 13,
-      color: colors.text === "#f8fafc" ? "rgba(255,255,255,0.8)" : "rgba(15, 23, 42, 0.7)",
+      color: colors.mutedForeground,
       fontFamily: "Inter_400Regular",
       marginTop: 2,
     },
@@ -153,22 +148,22 @@ export default function HomeScreen() {
       fontSize: 32,
       fontWeight: "700" as const,
       fontFamily: "Inter_700Bold",
-      color: colors.text === "#f8fafc" ? "#fff" : colors.foreground,
+      color: colors.foreground,
       marginTop: 4,
     },
     countBubble: {
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(255,255,255,0.2)" : "rgba(79, 70, 229, 0.08)",
-      borderRadius: 12,
+      backgroundColor: isDark ? "rgba(45, 212, 191, 0.12)" : "#E8F3EF",
+      borderRadius: 999,
       paddingHorizontal: 12,
       paddingVertical: 6,
-      borderWidth: colors.text === "#f8fafc" ? 0 : 1,
-      borderColor: "rgba(79, 70, 229, 0.15)",
+      borderWidth: 1,
+      borderColor: colors.border,
     },
     countText: {
       fontSize: 14,
       fontWeight: "600" as const,
       fontFamily: "Inter_600SemiBold",
-      color: colors.text === "#f8fafc" ? "#fff" : colors.primary,
+      color: colors.primary,
     },
     weekStrip: {
       backgroundColor: colors.card,
@@ -180,7 +175,7 @@ export default function HomeScreen() {
       alignItems: "center",
       paddingHorizontal: 16,
       paddingVertical: 8,
-      borderRadius: 14,
+      borderRadius: 12,
       marginHorizontal: 4,
       borderWidth: 1,
     },
@@ -268,11 +263,9 @@ export default function HomeScreen() {
       width: 38,
       height: 38,
       borderRadius: 12,
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.03)",
-      borderWidth: 1,
-      borderColor: colors.text === "#f8fafc" ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)",
       alignItems: "center",
       justifyContent: "center",
+      ...iconSurface(colors),
     },
     notifyBadge: {
       position: "absolute",
@@ -299,7 +292,7 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={colors.text === "#f8fafc" ? ["#0B0D18", "#080A10"] : ["#E5E7EB", "#F3F4F6"]}
+        colors={gradients.hero}
         style={styles.gradHeader}
       >
         <View style={styles.greetRow}>
@@ -312,7 +305,7 @@ export default function HomeScreen() {
             activeOpacity={0.8}
             onPress={() => router.push("/notifications")}
           >
-            <Feather name="bell" size={20} color={colors.text === "#f8fafc" ? "#fff" : colors.foreground} />
+            <Feather name="bell" size={20} color={colors.foreground} />
             {unreadCount > 0 && (
               <View style={styles.notifyBadge}>
                 <Text style={styles.notifyBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
@@ -354,7 +347,7 @@ export default function HomeScreen() {
                   isSelected
                     ? {
                         backgroundColor: colors.primary,
-                        borderColor: colors.text === "#f8fafc" ? "rgba(255, 255, 255, 0.15)" : "rgba(99, 102, 241, 0.2)",
+                        borderColor: isDark ? "rgba(248, 250, 247, 0.16)" : "rgba(15, 118, 110, 0.20)",
                         shadowColor: colors.primary,
                         shadowOffset: { width: 0, height: 4 },
                         shadowOpacity: 0.18,
@@ -362,7 +355,7 @@ export default function HomeScreen() {
                         elevation: 3,
                       }
                     : {
-                        backgroundColor: colors.text === "#f8fafc" ? "rgba(255, 255, 255, 0.02)" : "rgba(0, 0, 0, 0.02)",
+                        backgroundColor: isDark ? "rgba(248, 250, 247, 0.03)" : "#FFFFFF",
                         borderColor: colors.border,
                       },
                 ]}
@@ -442,7 +435,7 @@ export default function HomeScreen() {
         activeOpacity={0.8}
       >
         <LinearGradient
-          colors={["#6366f1", "#a855f7"]}
+          colors={gradients.action}
           style={{
             width: "100%",
             height: "100%",

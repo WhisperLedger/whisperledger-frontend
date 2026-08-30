@@ -16,6 +16,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { LinearGradient } from "expo-linear-gradient";
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from "expo-speech-recognition";
 
 import { CATEGORIES, CategoryId, useExpenses, PaymentMode } from "@/context/ExpenseContext";
 import { useReceivables } from "@/context/ReceivablesContext";
@@ -25,6 +29,14 @@ import { safeHaptics } from "@/utils/haptics";
 import * as Haptics from "expo-haptics";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import {
+  buildExpenseInsightAnswer,
+  getJailbreakResponse,
+  isJailbreakOrPromptInjection,
+  MAX_CHAT_INPUT_LENGTH,
+  validateChatInput,
+} from "@/utils/chatbotIntelligence";
+import { appGradients, iconSurface, surfaceStyle } from "@/utils/designSystem";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -82,6 +94,10 @@ interface ParsedExpense {
   date: string;
   paymentMode?: PaymentMode;
 }
+
+const MIN_SUPPORT_MESSAGE_LENGTH = 12;
+const MAX_BULK_EXPENSES = 20;
+const MAX_EXPENSE_AMOUNT = 10_000_000;
 
 interface ConvState {
   step: "idle" | "awaiting_category" | "awaiting_support_desc" | "awaiting_confirmation" | "awaiting_bulk_confirmation";
@@ -145,6 +161,11 @@ function todayISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function isValidISODateParts(year: number, month: number, day: number) {
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
 function parseTransactionLine(line: string, fallbackDate?: string): (ParsedExpense & { dateExplicitlyMatched: boolean }) | null {
   const lower = line.toLowerCase().trim();
   if (!lower) return null;
@@ -156,7 +177,7 @@ function parseTransactionLine(line: string, fallbackDate?: string): (ParsedExpen
 
   const rawAmt = amountMatch[1] || amountMatch[2] || amountMatch[0];
   const amount = parseFloat(rawAmt.replace(/,/g, ""));
-  if (isNaN(amount) || amount <= 0) return null;
+  if (isNaN(amount) || amount <= 0 || amount > MAX_EXPENSE_AMOUNT) return null;
 
   // 2. Parse Date
   let date = fallbackDate || todayISO();
@@ -187,7 +208,7 @@ function parseTransactionLine(line: string, fallbackDate?: string): (ParsedExpen
       let month = parseInt(dmyMatch[2], 10);
       let year = dmyMatch[3] ? parseInt(dmyMatch[3], 10) : new Date().getFullYear();
       if (year < 100) year += 2000;
-      if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      if (isValidISODateParts(year, month, day)) {
         date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
         matchedDateText = dmyMatch[0];
         dateExplicitlyMatched = true;
@@ -220,7 +241,7 @@ function parseTransactionLine(line: string, fallbackDate?: string): (ParsedExpen
             const day = parseInt(rawDay.replace(/(st|nd|rd|th)/g, ""), 10);
             let year = rawYear ? parseInt(rawYear, 10) : new Date().getFullYear();
             if (year < 100) year += 2000;
-            if (day >= 1 && day <= 31) {
+            if (isValidISODateParts(year, foundMonthIdx + 1, day)) {
               date = `${year}-${String(foundMonthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
               matchedDateText = matchAround[0];
               dateExplicitlyMatched = true;
@@ -316,7 +337,7 @@ function extractDateFromText(text: string): string | null {
     let month = parseInt(dmyMatch[2], 10);
     let year = dmyMatch[3] ? parseInt(dmyMatch[3], 10) : new Date().getFullYear();
     if (year < 100) year += 2000;
-    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+    if (isValidISODateParts(year, month, day)) {
       return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     }
   }
@@ -349,7 +370,7 @@ function extractDateFromText(text: string): string | null {
         const day = parseInt(rawDay.replace(/(st|nd|rd|th)/g, ""), 10);
         let year = rawYear ? parseInt(rawYear, 10) : new Date().getFullYear();
         if (year < 100) year += 2000;
-        if (day >= 1 && day <= 31) {
+        if (isValidISODateParts(year, foundMonthIdx + 1, day)) {
           return `${year}-${String(foundMonthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
         }
       }
@@ -373,10 +394,56 @@ export default function ChatbotScreen() {
   const [typing, setTyping] = useState(false);
   const [convState, setConvState] = useState<ConvState>({ step: "idle" });
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState("");
 
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
+  const finalVoiceResultHandledRef = useRef(false);
   const topPad = Platform.OS === "web" ? 67 : insets.top;
+  const gradients = appGradients(colors);
+
+  useSpeechRecognitionEvent("start", () => {
+    finalVoiceResultHandledRef.current = false;
+    setIsListening(true);
+    setVoiceStatus("Listening...");
+  });
+
+  useSpeechRecognitionEvent("end", () => {
+    setIsListening(false);
+    setVoiceStatus("");
+  });
+
+  useSpeechRecognitionEvent("result", (event) => {
+    const transcript = event.results[0]?.transcript?.trim() || "";
+    if (!transcript) return;
+
+    setInputText(transcript);
+    setVoiceStatus(event.isFinal ? "Processing voice command..." : transcript);
+
+    if (event.isFinal && !finalVoiceResultHandledRef.current) {
+      finalVoiceResultHandledRef.current = true;
+      setInputText("");
+      void submitMessage(transcript);
+    }
+  });
+
+  useSpeechRecognitionEvent("error", (event) => {
+    finalVoiceResultHandledRef.current = false;
+    setIsListening(false);
+    setVoiceStatus("");
+
+    const message =
+      event.error === "not-allowed"
+        ? "Microphone permission is required for voice commands."
+        : event.error === "no-speech" || event.error === "speech-timeout"
+          ? "I could not hear anything. Tap the mic and try again."
+          : event.error === "network"
+            ? "Speech recognition needs network or an on-device recognizer. Please try again."
+            : event.message || "Voice command failed. Please try again.";
+
+    addMessage("bot", message);
+  });
 
   useEffect(() => {
     const show = Keyboard.addListener(
@@ -398,7 +465,7 @@ export default function ChatbotScreen() {
     setMessages([{
       id: "welcome",
       sender: "bot",
-      text: `${g}, ${firstName}! 😊 I'm **WhisperBot** — your personal finance buddy.\n\nI can help you:\n💸 Log expenses (\"spent 200 on lunch\")\n📊 Analyse your spending\n📄 Download your PDF statement\n🆘 Raise a support ticket\n💬 Just chat — I'm here!\n\nWhat's on your mind?`,
+      text: `${g}, ${firstName}! I'm **WhisperBot** — your app and expense assistant.\n\nI can help you log expenses, analyse your real spending, explain app features, generate statements, review refunds, and raise support tickets.\n\nI only answer finance questions from your logged data. If I do not have enough data, I will say so instead of guessing.`,
       timestamp: new Date(),
     }]);
   }, [user]);
@@ -411,14 +478,67 @@ export default function ChatbotScreen() {
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
   }, []);
 
-  const handleSend = async () => {
-    const clean = inputText.trim();
-    if (!clean) return;
-    setInputText("");
+  const submitMessage = useCallback((rawText: string) => {
+    const validation = validateChatInput(rawText);
+    const clean = validation.cleanText;
+    if (!validation.isValid) {
+      if (validation.error) addMessage("bot", validation.error);
+      return;
+    }
+
     addMessage("user", clean);
     setTyping(true);
     safeHaptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setTimeout(() => processUserMessage(clean), 800);
+  }, [addMessage, processUserMessage]);
+
+  const handleSend = async () => {
+    const clean = inputText;
+    setInputText("");
+    submitMessage(clean);
+  };
+
+  const handleVoiceCommand = async () => {
+    if (isListening) {
+      ExpoSpeechRecognitionModule.stop();
+      return;
+    }
+
+    try {
+      const available = ExpoSpeechRecognitionModule.isRecognitionAvailable();
+      if (!available) {
+        addMessage("bot", "Voice commands are not available on this device. Please type your message instead.");
+        return;
+      }
+
+      const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!permission.granted) {
+        addMessage("bot", "Please allow microphone and speech recognition permissions to use voice commands.");
+        return;
+      }
+
+      finalVoiceResultHandledRef.current = false;
+      setVoiceStatus("Listening...");
+      ExpoSpeechRecognitionModule.start({
+        lang: "en-IN",
+        interimResults: true,
+        continuous: false,
+        maxAlternatives: 1,
+        contextualStrings: [
+          "spent 200 on lunch",
+          "log 500 groceries",
+          "where can I save money",
+          "show recent expenses",
+          "top spending categories",
+          "download statement",
+          "raise support ticket",
+        ],
+      });
+    } catch (error: any) {
+      setIsListening(false);
+      setVoiceStatus("");
+      addMessage("bot", error?.message || "Voice command could not start. Please try typing instead.");
+    }
   };
 
   // ─── AGENT: multi-task detection ──────────────────────────────────────────
@@ -442,6 +562,11 @@ export default function ChatbotScreen() {
       lower === "support"
     ) intents.push("support");
 
+    // Expense log. Detect this before analytics so "spent 150 on lunch" does not become a report query.
+    const expenseRegex = /(?:spent|paid|pay|add|log|cost|worth|₹|rs\.?\s*\d|\d\s*rs\.?|inr)\s*[\d,]+|[\d,]+\s*(?:rupees|rs\.?|inr|₹)/i;
+    const isExpenseLog = expenseRegex.test(lower);
+    if (isExpenseLog) intents.push("expense");
+
     // PDF / statement
     if (lower.includes("pdf") || lower.includes("statement") || lower.includes("download report") ||
       lower.includes("download my") || lower.includes("get report") || lower.includes("generate pdf"))
@@ -452,15 +577,12 @@ export default function ChatbotScreen() {
       "how much", "spending", "spent", "total for", "kitna spend", "my spend", 
       "what did i spend", "expense list", "show transaction", "tell me my spend",
       "analyse", "analyze", "breakdown", "overview", "monthly report", "how am i doing", 
-      "show spending", "show budget"
+      "show spending", "show budget", "where can i save", "manage my money", "spending advice",
+      "top category", "highest expense", "recent expenses", "last transactions", "control spending"
     ];
-    if (queryPhrases.some((p) => lower.includes(p))) {
+    if (!isExpenseLog && queryPhrases.some((p) => lower.includes(p))) {
       intents.push("spend_query");
     }
-
-    // Expense log
-    const expenseRegex = /(?:spent|paid|pay|add|log|cost|worth|₹|rs\.?\s*\d|\d\s*rs\.?|inr)\s*[\d,]+|[\d,]+\s*(?:rupees|rs\.?|inr|₹)/i;
-    if (expenseRegex.test(lower)) intents.push("expense");
 
     // Greeting
     const greetWords = ["hi","hello","hey","namaste","hii","hlo","gm","good morning","good evening","good night"];
@@ -524,16 +646,37 @@ export default function ChatbotScreen() {
     if (!intents.length && (lower.includes("help") || lower === "/help" || lower.includes("what can you do") || lower.includes("commands")))
       intents.push("help");
 
+    if (
+      lower.includes("how to use app") ||
+      lower.includes("complete app") ||
+      lower.includes("one stop") ||
+      lower.includes("what all can you do") ||
+      lower.includes("guide me") ||
+      lower.includes("app guide")
+    ) intents.push("app_guide");
+
     return intents;
   }
 
   // ─── MAIN PROCESSOR ───────────────────────────────────────────────────────
-  const processUserMessage = async (text: string) => {
+  async function processUserMessage(text: string) {
     const lower = text.toLowerCase().trim();
     const firstName = user?.name?.split(" ")[0] || "friend";
 
+    if (isJailbreakOrPromptInjection(text)) {
+      addMessage("bot", getJailbreakResponse());
+      setTyping(false);
+      return;
+    }
+
     // ── Context: awaiting support description ──────────────────────────────
     if (convState.step === "awaiting_support_desc") {
+      if (text.trim().length < MIN_SUPPORT_MESSAGE_LENGTH) {
+        addMessage("bot", `Please add a little more detail before I file the ticket — what happened, where in the app, and what you expected.`);
+        setTyping(false);
+        return;
+      }
+
       setConvState({ step: "idle" });
       try {
         if (user) {
@@ -659,6 +802,12 @@ export default function ChatbotScreen() {
       }
 
       if (parsedItems.length > 1) {
+        if (parsedItems.length > MAX_BULK_EXPENSES) {
+          addMessage("bot", `I found ${parsedItems.length} transactions, but I can safely log up to ${MAX_BULK_EXPENSES} at a time. Please split this into smaller batches.`);
+          setTyping(false);
+          return;
+        }
+
         const catLabel = (id: CategoryId) => CATEGORIES.find((c) => c.id === id)?.label || "Other";
         const formatDate = (iso: string) => {
           const parts = iso.split("-");
@@ -680,6 +829,15 @@ export default function ChatbotScreen() {
 
     // ── Agent: detect intents and run them all ─────────────────────────────
     const intents = detectIntents(lower);
+
+    if (!intents.includes("expense")) {
+      const groundedAnswer = buildExpenseInsightAnswer(text, expenses);
+      if (groundedAnswer) {
+        addMessage("bot", groundedAnswer);
+        setTyping(false);
+        return;
+      }
+    }
 
     if (intents.length === 0) {
       // Pure casual fallback
@@ -777,7 +935,7 @@ export default function ChatbotScreen() {
         }
 
         case "security": {
-          addMessage("bot", `Your data is 100% safe with me, ${firstName} 🔒\n\nAll expenses live in your personal encrypted Firestore database — only YOU can access them. We never sell, share, or analyse your data externally. Your financial life is your business, and I take that seriously! 💙`);
+          addMessage("bot", `Your expense data is stored under your signed-in Firebase account and protected by Firestore rules.\n\nFor SMS Auto-Sync, parsing happens on your device and I only work with the expense records available inside the app. I will not claim to see bank accounts, cards, or external transactions unless they are logged here.`);
           break;
         }
 
@@ -824,8 +982,13 @@ export default function ChatbotScreen() {
           addMessage("bot", `Sure ${firstName}! Here's everything I can do for you 💡`, {
             type: "help_guide",
             title: "WhisperBot Cheat Sheet",
-            body: `💸 Log Expenses:\n  "Spent 150 on coffee"\n  "Log 500 for groceries"\n\n📊 Check Spending:\n  "How much on food this month?"\n  "Show my budget breakdown"\n\n📄 Get Statement:\n  "Download my statement"\n  "Generate PDF"\n\n🆘 Raise Support:\n  "Raise a support ticket"\n  "I have an issue"\n\n💬 Just Chat:\n  How was your day?\n  Tell me a joke 😄`,
+            body: `Log Expenses:\n  "Spent 150 on coffee"\n  "Log 500 for groceries"\n\nAnalyse Spending:\n  "How much on food this month?"\n  "Where can I save money?"\n  "Show my recent expenses"\n\nApp Actions:\n  "Download my statement"\n  "Raise a support ticket"\n  "How do I enable SMS sync?"`,
           });
+          break;
+        }
+
+        case "app_guide": {
+          addMessage("bot", `I can be your one-stop app assistant.\n\n**Expenses:** tell me "spent 250 on lunch" or paste multiple lines. I will ask before saving.\n\n**Analytics:** ask "what did I spend this month", "top categories", "recent expenses", or "where can I save". I answer only from your logged expenses.\n\n**Statements:** ask "download PDF statement" for the current month.\n\n**SMS Sync:** go to Profile and enable Auto-Sync. New SMS expenses require approval before they become transactions.\n\n**Recovery:** ask about pending refunds or open the Money Recovery Hub.\n\n**Support:** say "raise support ticket" and describe the issue.`);
           break;
         }
 
@@ -856,9 +1019,13 @@ export default function ChatbotScreen() {
               user ? { uid: user.uid, name: user.name, email: user.email } : null
             );
             if (result === "success") {
-              addMessage("bot", `Your statement is ready! 📄 Check the popup to save or share it.`);
+              addMessage("bot", "Your statement was saved to your device.");
+            } else if (result === "cancelled") {
+              addMessage("bot", "Statement download was cancelled. Ask me to download it again whenever you need it.");
+            } else if (result === "unsupported") {
+              addMessage("bot", "Direct PDF download is only available on Android in this build. You can still open statements from the Analytics tab on web.");
             } else {
-              addMessage("bot", `Something went wrong generating the PDF 😔 Try again or visit the Analytics tab.`);
+              addMessage("bot", "Something went wrong generating the PDF. Try again or visit the Analytics tab.");
             }
           }
           break;
@@ -996,7 +1163,7 @@ export default function ChatbotScreen() {
     }
 
     setTyping(false);
-  };
+  }
 
   const executeAddExpense = async (amount: number, categoryId: CategoryId, note: string, customDate?: string) => {
     setTyping(true);
@@ -1040,9 +1207,10 @@ export default function ChatbotScreen() {
         { text: "Other", icon: "hash" },
       ];
     return [
-      { text: "💰 Overdue Refunds", icon: "shield" },
-      { text: "📊 Monthly Spends", icon: "bar-chart-2" },
-      { text: "🛍️ Swiggy / Zepto Status", icon: "shopping-bag" },
+      { text: "Where can I save money?", icon: "trending-down" },
+      { text: "Top spending categories", icon: "bar-chart-2" },
+      { text: "Show recent expenses", icon: "list" },
+      { text: "Complete app guide", icon: "compass" },
       { text: "📄 Download PDF Statement", icon: "download" },
       { text: "🆘 Raise Support Ticket", icon: "life-buoy" },
     ];
@@ -1056,7 +1224,7 @@ export default function ChatbotScreen() {
       paddingTop: topPad + 16,
       paddingHorizontal: 20,
       paddingBottom: 16,
-      backgroundColor: colors.card,
+      backgroundColor: colors.headerBg,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.border,
       flexDirection: "row",
@@ -1065,12 +1233,11 @@ export default function ChatbotScreen() {
     },
     avatar: {
       width: 38, height: 38, borderRadius: 12,
-      backgroundColor: "rgba(16, 185, 129, 0.12)",
       alignItems: "center", justifyContent: "center",
-      borderWidth: 1, borderColor: "rgba(16, 185, 129, 0.25)",
+      ...iconSurface(colors, "success"),
     },
     headerTitle: { fontSize: 18, fontWeight: "700", fontFamily: "Inter_700Bold", color: colors.foreground },
-    headerSub: { fontSize: 11, color: "#10b981", fontFamily: "Inter_600SemiBold", marginTop: 2, flexDirection: "row", alignItems: "center", gap: 4 },
+    headerSub: { fontSize: 11, color: colors.success, fontFamily: "Inter_600SemiBold", marginTop: 2, flexDirection: "row", alignItems: "center", gap: 4 },
     listContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, flexGrow: 1 },
     bubbleWrap: { flexDirection: "row", marginBottom: 14, maxWidth: "82%" },
     userWrap: { alignSelf: "flex-end" },
@@ -1083,7 +1250,7 @@ export default function ChatbotScreen() {
     userBubble: { borderBottomRightRadius: 4, overflow: "hidden" },
     botBubble: {
       backgroundColor: colors.card, borderBottomLeftRadius: 4,
-      borderWidth: 1, borderColor: "rgba(99, 102, 241, 0.25)",
+      borderWidth: 1, borderColor: colors.border,
     },
     userText: { color: "#fff", fontSize: 14, lineHeight: 21, fontFamily: "Inter_500Medium" },
     botText: { color: colors.foreground, fontSize: 14, lineHeight: 21, fontFamily: "Inter_400Regular" },
@@ -1096,20 +1263,18 @@ export default function ChatbotScreen() {
     },
     typingText: { fontSize: 12, color: colors.mutedForeground, fontFamily: "Inter_500Medium" },
     card: {
-      backgroundColor: colors.background, borderRadius: 12, borderWidth: 1,
-      borderColor: "rgba(99, 102, 241, 0.25)", padding: 12, marginTop: 10,
-      shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.06, shadowRadius: 6, elevation: 2,
+      padding: 12, marginTop: 10,
       width: SCREEN_WIDTH - 68,
+      ...surfaceStyle(colors, false),
     },
     cardTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
     cardTitle: { fontSize: 13, fontWeight: "700", fontFamily: "Inter_700Bold", color: colors.foreground },
     cardBody: { fontSize: 12.5, lineHeight: 18, fontFamily: "Inter_500Medium", color: colors.mutedForeground },
     chipsScroll: { paddingHorizontal: 16, paddingVertical: 10, backgroundColor: colors.background },
     chip: {
-      paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16,
-      backgroundColor: "rgba(99, 102, 241, 0.08)",
-      borderWidth: 1, borderColor: "rgba(99, 102, 241, 0.35)",
+      paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999,
+      backgroundColor: colors.card,
+      borderWidth: 1, borderColor: colors.border,
       marginRight: 8, flexDirection: "row", alignItems: "center", gap: 6,
       shadowColor: colors.primary, shadowOffset: { width: 0, height: 1 },
       shadowOpacity: 0.06, shadowRadius: 3, elevation: 1,
@@ -1124,10 +1289,38 @@ export default function ChatbotScreen() {
     },
     inputWrap: {
       flex: 1, minHeight: 48, maxHeight: 120, backgroundColor: colors.muted,
-      borderRadius: 24, paddingHorizontal: 18, paddingVertical: Platform.OS === "ios" ? 8 : 4,
+      borderRadius: 16, paddingHorizontal: 18, paddingVertical: Platform.OS === "ios" ? 8 : 4,
       flexDirection: "row", alignItems: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
     },
     input: { flex: 1, color: colors.foreground, fontFamily: "Inter_400Regular", fontSize: 14 },
+    voiceStatusBar: {
+      backgroundColor: colors.card,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      paddingHorizontal: 18,
+      paddingVertical: 8,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    voiceStatusText: {
+      flex: 1,
+      color: colors.mutedForeground,
+      fontSize: 12,
+      fontFamily: "Inter_500Medium",
+    },
+    micBtn: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.muted,
+    },
     sendBtn: {
       width: 48, height: 48, borderRadius: 24,
       backgroundColor: colors.primary, alignItems: "center", justifyContent: "center",
@@ -1167,7 +1360,7 @@ export default function ChatbotScreen() {
               <View style={[styles.bubbleWrap, isUser ? styles.userWrap : styles.botWrap]}>
                 {isUser ? (
                   <LinearGradient
-                    colors={["#6366f1", "#4f46e5"]}
+                    colors={gradients.primary}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={[styles.bubble, styles.userBubble]}
@@ -1261,6 +1454,13 @@ export default function ChatbotScreen() {
           />
         </View>
 
+        {!!voiceStatus && (
+          <View style={styles.voiceStatusBar}>
+            <Feather name={isListening ? "radio" : "mic"} size={13} color={isListening ? "#ef4444" : colors.primary} />
+            <Text style={styles.voiceStatusText} numberOfLines={1}>{voiceStatus}</Text>
+          </View>
+        )}
+
         {/* Input Bar */}
         <View style={[
           styles.inputArea,
@@ -1268,6 +1468,19 @@ export default function ChatbotScreen() {
             ? { marginBottom: keyboardHeight - tabBarHeight }
             : undefined,
         ]}>
+          <TouchableOpacity
+            style={[
+              styles.micBtn,
+              isListening && {
+                backgroundColor: "rgba(239, 68, 68, 0.12)",
+                borderColor: "rgba(239, 68, 68, 0.5)",
+              },
+            ]}
+            activeOpacity={0.8}
+            onPress={handleVoiceCommand}
+          >
+            <Feather name={isListening ? "square" : "mic"} size={18} color={isListening ? "#ef4444" : colors.primary} />
+          </TouchableOpacity>
           <View style={styles.inputWrap}>
             <TextInput
               ref={inputRef}
@@ -1276,6 +1489,7 @@ export default function ChatbotScreen() {
               onChangeText={setInputText}
               placeholder="Message WhisperBot..."
               placeholderTextColor={colors.mutedForeground}
+              maxLength={MAX_CHAT_INPUT_LENGTH}
               multiline={true}
               blurOnSubmit={false}
             />

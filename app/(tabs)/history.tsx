@@ -18,6 +18,7 @@ import AddExpenseModal from "@/components/AddExpenseModal";
 import ExpenseItem from "@/components/ExpenseItem";
 import { Expense, useExpenses } from "@/context/ExpenseContext";
 import { useColors } from "@/hooks/useColors";
+import { appGradients, isDarkPalette, surfaceStyle } from "@/utils/designSystem";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -63,6 +64,8 @@ export default function HistoryScreen() {
   const grouped = groupByDate(expenses);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
+  const isDark = isDarkPalette(colors);
+  const gradients = appGradients(colors);
 
   const prevMonth = () => {
     safeHaptics.selectionAsync();
@@ -82,7 +85,7 @@ export default function HistoryScreen() {
       paddingTop: topPad + 16,
       paddingHorizontal: 20,
       paddingBottom: 16,
-      backgroundColor: colors.card,
+      backgroundColor: colors.headerBg,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
@@ -100,18 +103,15 @@ export default function HistoryScreen() {
       marginTop: 16,
       marginBottom: 8,
       padding: 6,
-      borderRadius: 16,
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(14, 17, 31, 0.65)" : "rgba(255, 255, 255, 0.8)",
-      borderWidth: 1,
-      borderColor: colors.border,
+      ...surfaceStyle(colors, false),
     },
     navBtn: {
       width: 36,
       height: 36,
       borderRadius: 10,
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.08)" : "rgba(99, 102, 241, 0.04)",
+      backgroundColor: isDark ? "rgba(45, 212, 191, 0.10)" : "#E8F3EF",
       borderWidth: 1,
-      borderColor: colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.15)" : "rgba(99, 102, 241, 0.08)",
+      borderColor: colors.border,
       alignItems: "center",
       justifyContent: "center",
     },
@@ -129,9 +129,9 @@ export default function HistoryScreen() {
       marginTop: 4,
     },
     summaryChip: {
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.08)" : colors.accent,
+      backgroundColor: isDark ? "rgba(45, 212, 191, 0.10)" : "#E8F3EF",
       borderWidth: 1,
-      borderColor: colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.2)" : colors.border,
+      borderColor: colors.border,
       borderRadius: 12,
       paddingHorizontal: 14,
       paddingVertical: 7,
@@ -309,7 +309,7 @@ export default function HistoryScreen() {
         activeOpacity={0.8}
       >
         <LinearGradient
-          colors={["#6366f1", "#a855f7"]}
+          colors={gradients.action}
           style={{
             width: "100%",
             height: "100%",

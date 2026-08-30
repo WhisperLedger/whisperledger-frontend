@@ -9,6 +9,7 @@ import { useReceivables } from "@/context/ReceivablesContext";
 import { useColors } from "@/hooks/useColors";
 import { getReceivableStatusMeta } from "@/utils/recoveryEngine";
 import { safeHaptics } from "@/utils/haptics";
+import { appGradients, iconSurface, isDarkPalette } from "@/utils/designSystem";
 
 interface ReceivablesSummaryCardProps {
   onOpenAdd?: () => void;
@@ -17,6 +18,8 @@ interface ReceivablesSummaryCardProps {
 export default function ReceivablesSummaryCard({ onOpenAdd }: ReceivablesSummaryCardProps) {
   const colors = useColors();
   const { getPendingReceivables, getTotalPendingAmount } = useReceivables();
+  const isDark = isDarkPalette(colors);
+  const gradients = appGradients(colors);
 
   const pendingItems = getPendingReceivables();
   const totalAmount = getTotalPendingAmount();
@@ -25,15 +28,15 @@ export default function ReceivablesSummaryCard({ onOpenAdd }: ReceivablesSummary
     return (
       <View style={styles.container}>
         <LinearGradient
-          colors={colors.text === "#f8fafc" ? ["#1e1b4b", "#0f172a"] : ["#EEF2FF", "#F8FAFC"]}
+          colors={gradients.subtle}
           style={[
             styles.card,
-            { borderColor: colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.3)" : "rgba(99, 102, 241, 0.15)" },
+            { borderColor: colors.border },
           ]}
         >
           <View style={styles.emptyRow}>
-            <View style={styles.iconCircle}>
-              <Feather name="shield" size={24} color="#6366f1" />
+            <View style={[styles.iconCircle, iconSurface(colors, "primary")]}>
+              <Feather name="shield" size={24} color={colors.primary} />
             </View>
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={[styles.title, { color: colors.foreground }]}>No Pending Refunds</Text>
@@ -42,7 +45,7 @@ export default function ReceivablesSummaryCard({ onOpenAdd }: ReceivablesSummary
               </Text>
             </View>
             <TouchableOpacity
-              style={styles.addBtnSmall}
+              style={[styles.addBtnSmall, { backgroundColor: colors.primary }]}
               onPress={() => {
                 safeHaptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 onOpenAdd?.();
@@ -78,22 +81,22 @@ export default function ReceivablesSummaryCard({ onOpenAdd }: ReceivablesSummary
         <LinearGradient
           colors={
             overdueCount > 0
-              ? colors.text === "#f8fafc"
+              ? isDark
                 ? ["#31101b", "#180914"]
                 : ["#FEF2F2", "#FFF5F5"]
-              : colors.text === "#f8fafc"
+              : isDark
               ? ["#102a24", "#0a1815"]
-              : ["#ECFDF5", "#F0FDF4"]
+              : ["#E8F3EF", "#FFFFFF"]
           }
           style={[
             styles.card,
             {
               borderColor:
                 overdueCount > 0
-                  ? colors.text === "#f8fafc"
+                  ? isDark
                     ? "rgba(239, 68, 68, 0.4)"
                     : "rgba(239, 68, 68, 0.25)"
-                  : colors.text === "#f8fafc"
+                  : isDark
                   ? "rgba(16, 185, 129, 0.4)"
                   : "rgba(16, 185, 129, 0.25)",
             },
@@ -111,7 +114,7 @@ export default function ReceivablesSummaryCard({ onOpenAdd }: ReceivablesSummary
             </View>
 
             <View style={styles.arrowCircle}>
-              <Feather name="arrow-right" size={20} color={overdueCount > 0 ? "#ef4444" : "#10b981"} />
+              <Feather name="arrow-right" size={20} color={overdueCount > 0 ? "#ef4444" : colors.primary} />
             </View>
           </View>
 
@@ -126,9 +129,9 @@ export default function ReceivablesSummaryCard({ onOpenAdd }: ReceivablesSummary
             )}
 
             {waitingCount > 0 && (
-              <View style={[styles.pill, { backgroundColor: "rgba(16, 185, 129, 0.15)", borderColor: "#10b981" }]}>
-                <View style={[styles.dot, { backgroundColor: "#10b981" }]} />
-                <Text style={[styles.pillText, { color: "#10b981" }]}>
+              <View style={[styles.pill, { backgroundColor: "rgba(16, 185, 129, 0.15)", borderColor: colors.primary }]}>
+                <View style={[styles.dot, { backgroundColor: colors.primary }]} />
+                <Text style={[styles.pillText, { color: colors.primary }]}>
                   {waitingCount} Expected Soon
                 </Text>
               </View>
@@ -146,7 +149,7 @@ const styles = StyleSheet.create({
     marginVertical: 10,
   },
   card: {
-    borderRadius: 20,
+    borderRadius: 14,
     padding: 18,
     borderWidth: 1,
     shadowColor: "#000",
@@ -163,7 +166,6 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: "rgba(99, 102, 241, 0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -181,7 +183,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#6366f1",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -197,7 +198,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     fontFamily: "Inter_700Bold",
-    color: "#6366f1",
+    color: "#0F766E",
     letterSpacing: 0.6,
     marginBottom: 4,
   },

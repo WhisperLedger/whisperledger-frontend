@@ -24,11 +24,13 @@ import type { Receivable, ReceivableCategory } from "@/types/receivable";
 import { CATEGORY_LABELS } from "@/types/receivable";
 import { safeHaptics } from "@/utils/haptics";
 import { exportReceivablesToCSV } from "@/utils/exportHelper";
+import { iconSurface, isDarkPalette } from "@/utils/designSystem";
 
 export default function MoneyRecoveryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { receivables, getPendingReceivables, getTotalPendingAmount, getTotalRecoveredAmount } = useReceivables();
+  const isDark = isDarkPalette(colors);
 
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -92,13 +94,13 @@ export default function MoneyRecoveryScreen() {
           </Text>
         </View>
         <TouchableOpacity
-          style={[styles.iconBtn, { backgroundColor: "rgba(99, 102, 241, 0.15)", marginRight: 8 }]}
+          style={[styles.iconBtn, iconSurface(colors), { marginRight: 8 }]}
           onPress={handleExportCSV}
         >
-          <Feather name="download" size={18} color="#6366f1" />
+          <Feather name="download" size={18} color={colors.primary} />
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.iconBtn, { backgroundColor: "#6366f1" }]}
+          style={[styles.iconBtn, { backgroundColor: colors.primary }]}
           onPress={() => {
             safeHaptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setShowAddModal(true);
@@ -111,11 +113,11 @@ export default function MoneyRecoveryScreen() {
       {/* Summary Cards Row */}
       <View style={styles.statsRow}>
         <LinearGradient
-          colors={colors.text === "#f8fafc" ? ["#1e1b4b", "#0f172a"] : ["#EEF2FF", "#E0E7FF"]}
-          style={[styles.statBox, { borderColor: "rgba(99, 102, 241, 0.3)" }]}
+          colors={isDark ? ["#102a24", "#0a1815"] : ["#E8F3EF", "#FFFFFF"]}
+          style={[styles.statBox, { borderColor: colors.border }]}
         >
-          <Text style={styles.statLabel}>TOTAL OWE TO YOU</Text>
-          <Text style={[styles.statAmount, { color: "#6366f1" }]}>
+          <Text style={styles.statLabel}>TOTAL OWED TO YOU</Text>
+          <Text style={[styles.statAmount, { color: colors.primary }]}>
             ₹{pendingAmount.toLocaleString("en-IN")}
           </Text>
           <Text style={[styles.statSub, { color: colors.mutedForeground }]}>
@@ -128,7 +130,7 @@ export default function MoneyRecoveryScreen() {
           style={[styles.statBox, { borderColor: "rgba(16, 185, 129, 0.3)" }]}
         >
           <Text style={styles.statLabel}>RECOVERED SO FAR</Text>
-          <Text style={[styles.statAmount, { color: "#10b981" }]}>
+          <Text style={[styles.statAmount, { color: colors.success }]}>
             ₹{recoveredAmount.toLocaleString("en-IN")}
           </Text>
           <Text style={[styles.statSub, { color: colors.mutedForeground }]}>Money secured ✓</Text>
@@ -141,7 +143,7 @@ export default function MoneyRecoveryScreen() {
           style={{
             flexDirection: "row",
             alignItems: "center",
-            backgroundColor: "rgba(255, 255, 255, 0.06)",
+            backgroundColor: colors.card,
             borderRadius: 14,
             paddingHorizontal: 14,
             height: 44,
@@ -169,10 +171,10 @@ export default function MoneyRecoveryScreen() {
       <View style={styles.filterStrip}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
           <TouchableOpacity
-            style={[styles.chip, selectedCategory === "ALL" && styles.chipActive]}
+            style={[styles.chip, { borderColor: colors.border }, selectedCategory === "ALL" && { backgroundColor: colors.primary, borderColor: colors.primary }]}
             onPress={() => setSelectedCategory("ALL")}
           >
-            <Text style={[styles.chipText, selectedCategory === "ALL" && styles.chipTextActive]}>
+            <Text style={[styles.chipText, { color: colors.mutedForeground }, selectedCategory === "ALL" && styles.chipTextActive]}>
               Active ({pendingList.length})
             </Text>
           </TouchableOpacity>
@@ -184,10 +186,10 @@ export default function MoneyRecoveryScreen() {
             return (
               <TouchableOpacity
                 key={catKey}
-                style={[styles.chip, isSelected && styles.chipActive]}
+                style={[styles.chip, { borderColor: colors.border }, isSelected && { backgroundColor: colors.primary, borderColor: colors.primary }]}
                 onPress={() => setSelectedCategory(catKey)}
               >
-                <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
+                <Text style={[styles.chipText, { color: colors.mutedForeground }, isSelected && styles.chipTextActive]}>
                   {label} ({count})
                 </Text>
               </TouchableOpacity>
@@ -195,10 +197,10 @@ export default function MoneyRecoveryScreen() {
           })}
 
           <TouchableOpacity
-            style={[styles.chip, selectedCategory === "RECOVERED" && styles.chipActive]}
+            style={[styles.chip, { borderColor: colors.border }, selectedCategory === "RECOVERED" && { backgroundColor: colors.primary, borderColor: colors.primary }]}
             onPress={() => setSelectedCategory("RECOVERED")}
           >
-            <Text style={[styles.chipText, selectedCategory === "RECOVERED" && styles.chipTextActive]}>
+            <Text style={[styles.chipText, { color: colors.mutedForeground }, selectedCategory === "RECOVERED" && styles.chipTextActive]}>
               Recovered ✓
             </Text>
           </TouchableOpacity>
@@ -223,7 +225,7 @@ export default function MoneyRecoveryScreen() {
                 : "All money owed to you has been settled or no items match this category."}
             </Text>
             <TouchableOpacity
-              style={styles.addBtnEmpty}
+              style={[styles.addBtnEmpty, { backgroundColor: colors.primary }]}
               onPress={() => setShowAddModal(true)}
             >
               <Text style={styles.addBtnEmptyText}>+ Add Receivable</Text>
@@ -289,7 +291,7 @@ const styles = StyleSheet.create({
   },
   statBox: {
     flex: 1,
-    borderRadius: 16,
+    borderRadius: 14,
     padding: 14,
     borderWidth: 1,
   },
@@ -316,16 +318,14 @@ const styles = StyleSheet.create({
   chip: {
     paddingHorizontal: 14,
     paddingVertical: 7,
-    borderRadius: 20,
+    borderRadius: 999,
     backgroundColor: "rgba(148, 163, 184, 0.12)",
+    borderWidth: 1,
   },
-  chipActive: {
-    backgroundColor: "#6366f1",
-  },
+  chipActive: {},
   chipText: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#64748b",
     fontFamily: "Inter_600SemiBold",
   },
   chipTextActive: {
@@ -360,7 +360,6 @@ const styles = StyleSheet.create({
   },
   addBtnEmpty: {
     marginTop: 16,
-    backgroundColor: "#6366f1",
     paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 12,

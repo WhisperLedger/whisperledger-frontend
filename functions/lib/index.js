@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onStatementRequested = exports.onSupportCaseCreated = exports.onNotificationCreated = void 0;
+exports.onPasswordResetRequested = exports.onStatementRequested = exports.onSupportCaseCreated = exports.onNotificationCreated = void 0;
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-functions/v2/firestore");
 const firebase_functions_1 = require("firebase-functions");
@@ -103,6 +103,10 @@ exports.onNotificationCreated = (0, firestore_1.onDocumentCreated)({
     // Skip if already read (e.g., written as read:true by the app itself)
     if (data.read === true)
         return;
+    if (data.notificationType === "sms_approval" || data.data?.isLocalOnly || data.data?.smsApproval) {
+        firebase_functions_1.logger.info("onNotificationCreated: local SMS approval notification skipped", { userId, notifId });
+        return;
+    }
     const title = data.title || "WhisperLedger";
     const body = data.body || "";
     const notifData = data.data || {};
@@ -284,11 +288,22 @@ exports.onStatementRequested = (0, firestore_1.onDocumentCreated)({
         return;
     const req = snap.data();
     const requestId = event.params.requestId;
-    if (!req.userId || !req.userEmail)
+    if (!req.userId || !req.userEmail) {
+        firebase_functions_1.logger.warn("Monthly statement request missing recipient data", {
+            requestId,
+            hasUserId: Boolean(req.userId),
+            hasUserEmail: Boolean(req.userEmail),
+        });
+        await snap.ref.set({
+            status: "error",
+            errorMessage: "Missing userId or userEmail",
+            failedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
         return;
+    }
     try {
         const html = buildStatementHtml(req, requestId);
-        await admin.firestore().collection("mail").add({
+        const mailRef = await admin.firestore().collection("mail").add({
             to: [req.userEmail],
             replyTo: "whisperledger.support@gmail.com",
             message: {
@@ -313,10 +328,98 @@ exports.onStatementRequested = (0, firestore_1.onDocumentCreated)({
         await snap.ref.set({
             status: "queued",
             queuedAt: admin.firestore.FieldValue.serverTimestamp(),
+            mailDocId: mailRef.id,
         }, { merge: true });
     }
     catch (error) {
         firebase_functions_1.logger.error("Monthly statement email queue failed", { requestId, error });
+        await snap.ref.set({
+            status: "error",
+            errorMessage: String(error?.message || error),
+            failedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    }
+});
+/**
+ * onPasswordResetRequested — generates a secure password reset link via Firebase Admin SDK
+ * and queues a DKIM/SPF-compliant HTML email with anti-spam headers to prevent landing in SPAM.
+ */
+exports.onPasswordResetRequested = (0, firestore_1.onDocumentCreated)({
+    document: "password_resets/{resetId}",
+    region: "asia-south1",
+    memory: "256MiB",
+}, async (event) => {
+    const snap = event.data;
+    if (!snap)
+        return;
+    const data = snap.data();
+    const email = data.email;
+    if (!email)
+        return;
+    try {
+        // Generate secure password reset URL server-side
+        const actionCodeSettings = {
+            url: "https://whisperledger.app/login",
+            handleCodeInApp: true,
+        };
+        let resetLink = "";
+        try {
+            resetLink = await admin.auth().generatePasswordResetLink(email, actionCodeSettings);
+        }
+        catch (authErr) {
+            firebase_functions_1.logger.warn("generatePasswordResetLink fallback to standard link:", authErr);
+            resetLink = await admin.auth().generatePasswordResetLink(email);
+        }
+        const html = `
+      <div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#0f172a;">
+        <div style="background:#0f172a;padding:24px;border-radius:12px 12px 0 0;text-align:center;">
+          <h2 style="color:#ffffff;margin:0;font-size:24px;">WhisperLedger</h2>
+          <p style="color:#94a3b8;margin:6px 0 0 0;font-size:14px;">Password Reset Request</p>
+        </div>
+        <div style="border:1px solid #e2e8f0;border-top:0;padding:24px;border-radius:0 0 12px 12px;background:#ffffff;">
+          <p style="font-size:15px;line-height:22px;">Hello,</p>
+          <p style="font-size:15px;line-height:22px;">We received a request to reset your password for your WhisperLedger account (<strong>${esc(email)}</strong>).</p>
+          <div style="text-align:center;margin:28px 0;">
+            <a href="${resetLink}" style="background:#6366f1;color:#ffffff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;font-size:16px;">Reset Password</a>
+          </div>
+          <p style="font-size:13px;color:#64748b;line-height:20px;">If the button above does not work, copy and paste this secure link into your browser:<br/><a href="${resetLink}" style="color:#6366f1;word-break:break-all;">${resetLink}</a></p>
+          <hr style="border:0;border-top:1px solid #e2e8f0;margin:24px 0;" />
+          <p style="font-size:12px;color:#94a3b8;margin:0;">If you did not request a password reset, you can safely ignore this email. Your password will remain unchanged.</p>
+          <p style="font-size:12px;color:#94a3b8;margin:8px 0 0 0;">Support: whisperledger.support@gmail.com</p>
+        </div>
+      </div>`;
+        const plainText = `WhisperLedger Password Reset Request\n\n` +
+            `We received a request to reset your password for ${email}.\n\n` +
+            `Reset Link: ${resetLink}\n\n` +
+            `If you did not request this, please ignore this email.\n` +
+            `Support: whisperledger.support@gmail.com`;
+        await admin.firestore().collection("mail").add({
+            to: [email],
+            replyTo: "whisperledger.support@gmail.com",
+            headers: {
+                "X-Priority": "1",
+                "Importance": "high",
+                "List-Unsubscribe": "<mailto:whisperledger.support@gmail.com>",
+            },
+            message: {
+                subject: "Reset your WhisperLedger password",
+                text: plainText,
+                html,
+            },
+            meta: {
+                kind: "password_reset",
+                email,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+        });
+        await snap.ref.set({
+            status: "sent",
+            sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        firebase_functions_1.logger.info("onPasswordResetRequested: reset link queued via mail", { email });
+    }
+    catch (error) {
+        firebase_functions_1.logger.error("onPasswordResetRequested failed:", { email, error });
         await snap.ref.set({
             status: "error",
             errorMessage: String(error?.message || error),

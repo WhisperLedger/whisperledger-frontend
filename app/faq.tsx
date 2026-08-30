@@ -21,6 +21,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { db } from "@/lib/firebase";
 import SupportModal from "@/components/SupportModal";
+import { surfaceStyle } from "@/utils/designSystem";
 
 const FAQS = [
   {
@@ -139,7 +140,7 @@ export default function FAQScreen() {
           ))}
         </View>
 
-        <View style={[styles.supportBox, { backgroundColor: colors.muted, borderColor: colors.border }]}>
+        <View style={[styles.supportBox, surfaceStyle(colors)]}>
           <Feather name="life-buoy" size={24} color={colors.primary} style={{ marginBottom: 12 }} />
           <Text style={[styles.supportTitle, { color: colors.foreground }]}>Still need help?</Text>
           <Text style={[styles.supportDesc, { color: colors.mutedForeground }]}>
@@ -219,8 +220,6 @@ const styles = StyleSheet.create({
   },
   supportBox: {
     padding: 24,
-    borderRadius: 16,
-    borderWidth: 1,
     alignItems: "center",
     marginTop: 16,
   },
@@ -241,7 +240,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     paddingHorizontal: 24,
-    borderRadius: 8,
+    borderRadius: 12,
   },
   emailBtnText: {
     color: "#fff",

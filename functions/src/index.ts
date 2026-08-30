@@ -116,6 +116,10 @@ export const onNotificationCreated = onDocumentCreated(
 
     // Skip if already read (e.g., written as read:true by the app itself)
     if (data.read === true) return;
+    if (data.notificationType === "sms_approval" || data.data?.isLocalOnly || data.data?.smsApproval) {
+      logger.info("onNotificationCreated: local SMS approval notification skipped", { userId, notifId });
+      return;
+    }
 
     const title = data.title || "WhisperLedger";
     const body = data.body || "";
@@ -327,11 +331,26 @@ export const onStatementRequested = onDocumentCreated(
     if (!snap) return;
     const req = snap.data() as StatementRequest;
     const requestId = event.params.requestId as string;
-    if (!req.userId || !req.userEmail) return;
+    if (!req.userId || !req.userEmail) {
+      logger.warn("Monthly statement request missing recipient data", {
+        requestId,
+        hasUserId: Boolean(req.userId),
+        hasUserEmail: Boolean(req.userEmail),
+      });
+      await snap.ref.set(
+        {
+          status: "error",
+          errorMessage: "Missing userId or userEmail",
+          failedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      return;
+    }
 
     try {
       const html = buildStatementHtml(req, requestId);
-      await admin.firestore().collection("mail").add({
+      const mailRef = await admin.firestore().collection("mail").add({
         to: [req.userEmail],
         replyTo: "whisperledger.support@gmail.com",
         message: {
@@ -362,6 +381,7 @@ export const onStatementRequested = onDocumentCreated(
         {
           status: "queued",
           queuedAt: admin.firestore.FieldValue.serverTimestamp(),
+          mailDocId: mailRef.id,
         },
         { merge: true }
       );
@@ -371,6 +391,7 @@ export const onStatementRequested = onDocumentCreated(
         {
           status: "error",
           errorMessage: String((error as Error)?.message || error),
+          failedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
@@ -476,4 +497,3 @@ export const onPasswordResetRequested = onDocumentCreated(
     }
   }
 );
-

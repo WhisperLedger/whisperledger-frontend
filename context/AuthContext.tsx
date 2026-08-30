@@ -8,7 +8,8 @@ import {
   updateProfile as updateProfileFirebase,
   User as FirebaseUser,
   sendPasswordResetEmail,
-  sendEmailVerification
+  sendEmailVerification,
+  deleteUser
 } from "firebase/auth";
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import Constants from "expo-constants";
@@ -17,6 +18,8 @@ import { doc, setDoc, query, collection, where, getDocs } from "firebase/firesto
 import { Platform } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 import { db, auth } from "../lib/firebase";
+import { validateEmail, validateFullName, validateUsername } from "@/utils/validation";
+import { validatePassword } from "@/utils/passwordValidator";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -91,6 +94,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setIsAuthReady(true);
       if (firebaseUser) {
+        const isPasswordUser = firebaseUser.providerData.some((provider) => provider.providerId === "password");
+        if (isPasswordUser && !firebaseUser.emailVerified) {
+          if (!isRegisteringRef.current) {
+            await signOut(auth);
+            setUser(null);
+            await AsyncStorage.removeItem("@last_active_user_session").catch(() => null);
+          }
+          setIsLoading(false);
+          return;
+        }
+
         let cachedProfile: Partial<User> = {};
         try {
           const cached = await AsyncStorage.getItem(`@user_profile_${firebaseUser.uid}`);
@@ -145,6 +159,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: updatedUser.email,
           username: updatedUser.username,
           bio: updatedUser.bio,
+          emailVerified: firebaseUser.emailVerified,
+          pendingVerification: false,
+          verifiedAt: firebaseUser.emailVerified ? Date.now() : null,
           lastActive: Date.now(),
         }, { merge: true }).catch((err) => {
           console.warn("⚠️ Background user Firestore metadata sync skipped:", err);
@@ -196,6 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Email Verification Check
       if (!credential.user.emailVerified) {
         console.warn("⚠️ Email not verified for user:", targetEmail);
+        await sendEmailVerification(credential.user).catch(() => null);
         await signOut(auth);
         return {
           success: false,
@@ -205,6 +223,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       console.log("✅ [AuthContext] signInWithEmailAndPassword succeeded!");
+
+      await setDoc(doc(db, `users/${credential.user.uid}`), {
+        uid: credential.user.uid,
+        email: credential.user.email || targetEmail,
+        emailVerified: true,
+        pendingVerification: false,
+        verifiedAt: Date.now(),
+        lastActive: Date.now(),
+      }, { merge: true }).catch((err) => {
+        console.warn("⚠️ Verified email metadata sync skipped:", err);
+      });
 
       const tempUser = {
         uid: credential.user.uid,
@@ -226,10 +255,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const cleanEmail = email.trim().toLowerCase();
       const cleanUsername = username.trim().toLowerCase();
+      const cleanName = name.trim().replace(/\s+/g, " ");
+      const emailCheck = validateEmail(cleanEmail);
+      const usernameCheck = validateUsername(cleanUsername);
+      const nameCheck = validateFullName(cleanName);
+      const passwordCheck = validatePassword(pass);
+
+      if (!nameCheck.isValid) return { success: false, error: nameCheck.error };
+      if (!emailCheck.isValid) return { success: false, error: emailCheck.error };
+      if (!usernameCheck.isValid) return { success: false, error: usernameCheck.error };
+      if (!passwordCheck.isValid) return { success: false, error: passwordCheck.errors[0] };
+
+      const usernameSnapshot = await getDocs(query(collection(db, "users"), where("username", "==", cleanUsername)));
+      if (!usernameSnapshot.empty) {
+        return { success: false, error: "This username is already taken. Please choose another one." };
+      }
 
       console.log("📡 [AuthContext] Calling createUserWithEmailAndPassword...");
       const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
-      await updateProfileFirebase(userCredential.user, { displayName: name });
+      await updateProfileFirebase(userCredential.user, { displayName: cleanName });
       
       // Send verification link to user's email
       try {
@@ -237,14 +281,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log("📧 Verification email sent to:", cleanEmail);
       } catch (evErr) {
         console.warn("Failed to send email verification:", evErr);
+        await deleteUser(userCredential.user).catch(() => null);
+        return { success: false, error: "Could not send verification email. Please check the address and try again." };
       }
 
-      console.log("📡 [AuthContext] Saving user record to Firestore...");
+      console.log("📡 [AuthContext] Saving pending user record to Firestore...");
       await setDoc(doc(db, `users/${userCredential.user.uid}`), {
         uid: userCredential.user.uid,
-        name: name,
+        name: cleanName,
         email: cleanEmail,
         username: cleanUsername,
+        emailVerified: false,
+        pendingVerification: true,
+        authProvider: "password",
         createdAt: Date.now(),
       }, { merge: true });
 
@@ -259,6 +308,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isRegisteringRef.current = false;
       console.warn("❌ [AuthContext] Registration Error caught:", error);
       return { success: false, error: error.message };
+    } finally {
+      isRegisteringRef.current = false;
     }
   }, []);
 

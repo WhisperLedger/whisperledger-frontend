@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CATEGORIES, CategoryId, PaymentMode, useExpenses } from "@/context/ExpenseContext";
 import { useColors } from "@/hooks/useColors";
 import MiniCalendar from "./MiniCalendar";
+import { isDarkPalette } from "@/utils/designSystem";
 
 function todayISO() {
   const d = new Date();
@@ -62,6 +63,7 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { addExpense, updateExpense, getTotalForDate } = useExpenses();
+  const isDark = isDarkPalette(colors);
 
   const [amount, setAmount] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<CategoryId>("groceries");
@@ -203,11 +205,11 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
     },
     sheet: {
       backgroundColor: colors.card,
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
       maxHeight: "92%",
-      borderWidth: colors.text === "#f8fafc" ? 1.5 : 0,
-      borderColor: "rgba(99, 102, 241, 0.2)",
+      borderWidth: 1,
+      borderColor: colors.border,
       borderBottomWidth: 0,
     },
     handle: {
@@ -260,10 +262,12 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
       flexDirection: "row",
       alignItems: "center",
       backgroundColor: colors.muted,
-      borderRadius: 18,
+      borderRadius: 16,
       paddingHorizontal: 18,
       paddingVertical: 14,
       marginBottom: 22,
+      borderWidth: 1,
+      borderColor: colors.border,
     },
     currency: {
       fontSize: 30,
@@ -305,7 +309,7 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
     categoryIconWrap: {
       width: 52,
       height: 52,
-      borderRadius: 16,
+      borderRadius: 14,
       alignItems: "center",
       justifyContent: "center",
       borderWidth: 2,
@@ -348,7 +352,7 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
       marginHorizontal: 20,
       marginBottom: 10,
       marginTop: 10,
-      borderRadius: 16,
+      borderRadius: 14,
       paddingVertical: 16,
       alignItems: "center",
       flexDirection: "row",
@@ -402,9 +406,8 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
                 {/* Amount */}
                 <View style={[
                   styles.amountRow,
-                  colors.text === "#f8fafc" && {
+                  isDark && {
                     borderColor: `${selectedCat.color}50`,
-                    borderWidth: 1.5,
                     shadowColor: selectedCat.color,
                     shadowOffset: { width: 0, height: 2 },
                     shadowOpacity: 0.15,
@@ -444,7 +447,7 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
                           style={[
                             styles.categoryIconWrap,
                             {
-                              backgroundColor: isSelected ? c.lightColor : colors.muted,
+                              backgroundColor: isSelected ? (isDark ? `${c.color}22` : c.lightColor) : colors.muted,
                               borderColor: isSelected ? c.color : "transparent",
                               shadowColor: isSelected ? c.color : "transparent",
                               shadowOffset: { width: 0, height: 2 },
@@ -481,7 +484,7 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
                     <TouchableOpacity
                       key={mode}
                       style={[
-                        { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.border },
+                        { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
                         paymentMode === mode && { backgroundColor: colors.primary, borderColor: colors.primary }
                       ]}
                       onPress={() => { setPaymentMode(mode); safeHaptics.selectionAsync(); }}
@@ -562,7 +565,7 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
                 style={[
                   styles.saveBtn,
                   {
-                    backgroundColor: selectedCat.color,
+                    backgroundColor: colors.primary,
                     opacity: saving || !amount || parseFloat(amount) <= 0 || isFutureISODate(date) ? 0.4 : 1,
                     marginBottom: Platform.OS === "ios" && keyboardHeight > 0 ? 10 : 14,
                   },

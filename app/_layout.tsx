@@ -32,9 +32,16 @@ import { ReceivablesProvider } from "@/context/ReceivablesContext";
 import { BudgetProvider } from "@/context/BudgetContext";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { useColors } from "@/hooks/useColors";
-import { logUserNotification, setupNotifications, SMSAction } from "@/utils/notifications";
+import {
+  logUserNotification,
+  markSMSApprovalProcessed,
+  setupNotifications,
+  SMSAction,
+  SMS_APPROVAL_TYPE,
+} from "@/utils/notifications";
+import { markSmsIgnored, registerSMSBackgroundSync } from "@/utils/smsSync";
 import { classifyCategory } from "@/utils/smsParser";
-import { collection, addDoc, doc, updateDoc, setDoc } from "firebase/firestore";
+import { collection, doc, getDocs, limit, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import * as Device from "expo-device";
 import { BiometricGate } from "@/components/BiometricGate";
@@ -82,11 +89,27 @@ if (Notifications) {
 
 const queryClient = new QueryClient();
 
+function smsExpenseDocId(smsId: string) {
+  return `sms_${smsId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120)}`;
+}
+
+async function hasExpenseForSms(userId: string, smsId?: string | null) {
+  if (!smsId) return false;
+  const existing = await getDocs(
+    query(collection(db, `users/${userId}/expenses`), where("smsId", "==", smsId), limit(1))
+  );
+  return !existing.empty;
+}
+
+async function markLinkedNotificationRead(userId: string, data: Record<string, any>) {
+  if (!data.firestoreNotifId) return;
+  await updateDoc(doc(db, `users/${userId}/notifications/${data.firestoreNotifId}`), { read: true }).catch(() => null);
+}
+
 function RootLayoutNav() {
   const { user, isLoading, isAuthReady } = useAuth();
   const segments = useSegments();
   const navigationState = useRootNavigationState();
-  const processedNotifIds = useRef(new Set<string>()).current;
   // Store a deep link that arrived before the router/auth was ready
   const pendingDeepLink = useRef<string | null>(null);
 
@@ -226,73 +249,18 @@ function RootLayoutNav() {
     };
 
     if (user && isAuthReady) registerPushToken();
+    if (user && isAuthReady) registerSMSBackgroundSync().catch((err) => {
+      console.warn("[SMS Sync] Background registration skipped:", err);
+    });
 
-
-    let unsubNotifications: (() => void) | null = null;
-
-    if (user && isAuthReady) {
-      const {
-        collection: fsCollection,
-        query: fsQuery,
-        orderBy: fsOrderBy,
-        limit: fsLimit,
-        onSnapshot: fsOnSnapshot,
-      } = require("firebase/firestore");
-
-      const q = fsQuery(
-        fsCollection(db, `users/${user.uid}/notifications`),
-        fsOrderBy("createdAt", "desc"),
-        fsLimit(20)
-      );
-
-      unsubNotifications = fsOnSnapshot(q, (snapshot: any) => {
-        snapshot.docChanges().forEach(async (change: any) => {
-          if ((change.type === "added" || change.type === "modified") && Notifications) {
-            const data = change.doc.data();
-            const docId = change.doc.id;
-
-            if (!data.read && !processedNotifIds.has(docId)) {
-              processedNotifIds.add(docId);
-              try {
-                await Notifications.scheduleNotificationAsync({
-                  content: {
-                    title: data.title || "Notification",
-                    body: data.body || "",
-                    data: {
-                      ...(data.data || {}),
-                      imageUrl: data.imageUrl,
-                      image: data.imageUrl,
-                      picture: data.imageUrl,
-                      bigPictureUrl: data.imageUrl,
-                      isLocalTriggered: true,
-                      firestoreNotifId: docId,
-                    },
-                    ...(data.imageUrl ? { attachments: [{ url: data.imageUrl, identifier: "image" }] } : {}),
-                    sound: true,
-                    priority: "max",
-                    channelId: "default",
-                  },
-                  trigger: null,
-                });
-                console.log("[Notifications] Heads-up push notification banner presented for:", docId);
-              } catch (e) {
-                console.warn("[Notifications] Failed to schedule local notification:", e);
-              }
-            } else {
-              processedNotifIds.add(docId);
-            }
-          }
-        });
-      }, (err: any) => {
-        console.warn("[Notifications] Real-time listener failed:", err);
-      });
-    }
+    if (!Notifications) return;
 
     const receivedSub = Notifications.addNotificationReceivedListener(async (notification: any) => {
       if (!user) return;
       const data = (notification.request.content.data || {}) as Record<string, any>;
       // Loop-Breaker: Do NOT write mock/local notifications to Firestore!
       if (data.isLocalTriggered) return;
+      if (data.isLocalOnly || data.isCloudTriggered || data.notificationType === SMS_APPROVAL_TYPE) return;
       // Do not write budget alerts or daily reminders to Firestore logs
       if (data.notificationType === "budget_alert" || data.notificationType === "daily_reminder") return;
 
@@ -318,17 +286,19 @@ function RootLayoutNav() {
       const { actionIdentifier, notification } = response;
       const data = (notification.request.content.data || {}) as Record<string, any>;
       const { smsId, amount, merchant, deepLink } = data;
+      const isSMSApprovalAction = actionIdentifier === SMSAction.APPROVE || actionIdentifier === SMSAction.DISCARD;
 
       if (user) {
-        if (data.isLocalTriggered) {
-          // If local notification is tapped, update its Firestore read status directly!
-          if (data.firestoreNotifId) {
-            const { doc: fsDoc, updateDoc: fsUpdateDoc } = require("firebase/firestore");
-            await fsUpdateDoc(fsDoc(db, `users/${user.uid}/notifications/${data.firestoreNotifId}`), { read: true }).catch(() => null);
-          }
+        if (data.isLocalTriggered || data.isCloudTriggered) {
+          await markLinkedNotificationRead(user.uid, data);
         } else {
           // Only log external/push notifications that are not budget alerts or daily reminders
-          if (data.notificationType !== "budget_alert" && data.notificationType !== "daily_reminder") {
+          if (
+            !data.isLocalOnly &&
+            data.notificationType !== SMS_APPROVAL_TYPE &&
+            data.notificationType !== "budget_alert" &&
+            data.notificationType !== "daily_reminder"
+          ) {
             try {
               await logUserNotification({
                 userId: user.uid,
@@ -350,6 +320,31 @@ function RootLayoutNav() {
         }
       }
 
+      if (isSMSApprovalAction && user) {
+        if (actionIdentifier === SMSAction.APPROVE) {
+          try {
+            if (!(await hasExpenseForSms(user.uid, String(smsId || "")))) {
+              await setDoc(doc(db, `users/${user.uid}/expenses/${smsExpenseDocId(String(smsId || Date.now()))}`), {
+                amount: Number(amount || 0),
+                note: data.note || `Auto-synced from SMS: ${merchant}`,
+                categoryId: data.categoryId || classifyCategory(String(merchant || "")),
+                paymentMode: data.paymentMode || "none",
+                date: data.date || new Date().toISOString().split("T")[0],
+                smsId,
+                merchant: merchant || "Unknown Merchant",
+                createdAt: Date.now(),
+              });
+            }
+            await markSMSApprovalProcessed(String(smsId || ""));
+            console.log("Expense approved and added to Firestore");
+          } catch (e) {
+            console.error("Failed to add approved expense:", e);
+          }
+        } else {
+          await markSmsIgnored(String(smsId || ""));
+        }
+      }
+
       if (typeof deepLink === "string" && deepLink.length > 0) {
         if (isLoading || !user) {
           // App not ready yet – stash the link and navigate once auth resolves
@@ -368,29 +363,11 @@ function RootLayoutNav() {
           router.push("/(tabs)" as any);
         }
       }
-
-      if (actionIdentifier === SMSAction.APPROVE && user) {
-        try {
-          await addDoc(collection(db, `users/${user.uid}/expenses`), {
-            amount,
-            note: data.note || `Auto-synced from SMS: ${merchant}`,
-            categoryId: data.categoryId || classifyCategory(String(merchant || "")),
-            paymentMode: data.paymentMode || "none",
-            date: data.date || new Date().toISOString().split("T")[0],
-            smsId,
-            createdAt: Date.now(),
-          });
-          console.log("Expense approved and added to Firestore");
-        } catch (e) {
-          console.error("Failed to add approved expense:", e);
-        }
-      }
     });
 
     return () => {
       if (receivedSub) receivedSub.remove();
       if (responseSub) responseSub.remove();
-      if (unsubNotifications) unsubNotifications();
     };
   }, [user, isAuthReady]);
 
@@ -596,7 +573,7 @@ function AnimatedSplashScreen({ onFinish, fontsLoaded }: { onFinish: () => void;
                 ]}
               >
                 <LinearGradient
-                  colors={["#6366f1", "#10b981"]}
+                  colors={["#0F766E", "#F59E0B"]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={StyleSheet.absoluteFill}

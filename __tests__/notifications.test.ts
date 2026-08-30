@@ -1,4 +1,14 @@
 jest.mock("@/lib/firebase", () => ({ db: {} }));
+jest.mock("@react-native-async-storage/async-storage", () => {
+  const store = new Map<string, string>();
+  return {
+    getItem: jest.fn((key: string) => Promise.resolve(store.get(key) ?? null)),
+    setItem: jest.fn((key: string, value: string) => {
+      store.set(key, value);
+      return Promise.resolve();
+    }),
+  };
+});
 
 const mockScheduleNotificationAsync = jest.fn();
 
@@ -11,6 +21,7 @@ import { scheduleSMSApprovalNotification, SMS_APPROVAL_CATEGORY, SMS_APPROVAL_TY
 describe("scheduleSMSApprovalNotification", () => {
   beforeEach(() => {
     mockScheduleNotificationAsync.mockClear();
+    mockScheduleNotificationAsync.mockResolvedValue("notif_1");
   });
 
   test("keeps parsed SMS transaction fields in the approval payload", async () => {
@@ -34,7 +45,12 @@ describe("scheduleSMSApprovalNotification", () => {
         data: {
           ...transaction,
           notificationType: SMS_APPROVAL_TYPE,
+          isLocalOnly: true,
+          smsApproval: true,
         },
+        sound: true,
+        priority: "high",
+        channelId: "default",
       },
       trigger: null,
     });

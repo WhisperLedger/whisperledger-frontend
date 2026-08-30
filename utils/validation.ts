@@ -7,6 +7,39 @@ export interface ValidationResult {
   error?: string;
 }
 
+const BLOCKED_EMAIL_DOMAINS = new Set([
+  "example.com",
+  "example.org",
+  "example.net",
+  "test.com",
+  "mailinator.com",
+  "10minutemail.com",
+  "tempmail.com",
+  "guerrillamail.com",
+]);
+
+export function validateFullName(name: string): ValidationResult {
+  const sanitized = (name || "").trim().replace(/\s+/g, " ");
+
+  if (!sanitized) {
+    return { isValid: false, error: "Full name is required." };
+  }
+
+  if (sanitized.length < 2) {
+    return { isValid: false, error: "Full name must be at least 2 characters long." };
+  }
+
+  if (sanitized.length > 60) {
+    return { isValid: false, error: "Full name cannot exceed 60 characters." };
+  }
+
+  if (!/^[a-zA-Z][a-zA-Z\s'.-]*$/.test(sanitized)) {
+    return { isValid: false, error: "Full name can only contain letters, spaces, apostrophes, periods, and hyphens." };
+  }
+
+  return { isValid: true };
+}
+
 /**
  * Validates and sanitizes email address formats.
  */
@@ -20,7 +53,28 @@ export function validateEmail(email: string): ValidationResult {
   // RFC 5322 compliant regex check
   const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
   if (!emailRegex.test(sanitized)) {
-    return { isValid: false, error: "Please enter a valid email address (e.g., name@example.com)." };
+    return { isValid: false, error: "Please enter a valid email address (e.g., name@gmail.com)." };
+  }
+
+  const [localPart, domain] = sanitized.split("@");
+  if (
+    localPart.startsWith(".") ||
+    localPart.endsWith(".") ||
+    localPart.includes("..") ||
+    domain.includes("..") ||
+    domain.startsWith("-") ||
+    domain.endsWith("-")
+  ) {
+    return { isValid: false, error: "Please enter a valid email address." };
+  }
+
+  const domainParts = domain.split(".");
+  if (domainParts.some((part) => !part || part.startsWith("-") || part.endsWith("-"))) {
+    return { isValid: false, error: "Please enter a valid email domain." };
+  }
+
+  if (BLOCKED_EMAIL_DOMAINS.has(domain)) {
+    return { isValid: false, error: "Please use a real personal email address, not a test or temporary email." };
   }
 
   return { isValid: true };

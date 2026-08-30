@@ -1,13 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import * as Print from "expo-print";
-import * as Sharing from "expo-sharing";
-import * as FileSystem from "expo-file-system";
 import { useLocalSearchParams } from "expo-router";
 import { useAuth } from "@/context/AuthContext";
-import { db } from "@/lib/firebase";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import React, { useState, useRef } from "react";
 import {
   Alert,
@@ -28,6 +23,8 @@ import { useBudgets } from "@/context/BudgetContext";
 import { useTheme } from "@/context/ThemeContext";
 import { CATEGORIES, CategoryId, useExpenses } from "@/context/ExpenseContext";
 import { useColors } from "@/hooks/useColors";
+import { generateAndSharePDF, queueMonthlyStatementEmail } from "@/utils/pdfGenerator";
+import { appGradients, iconSurface, surfaceStyle } from "@/utils/designSystem";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -69,12 +66,15 @@ export default function AnalyticsScreen() {
   const [drillCategory, setDrillCategory] = useState<CategoryId | null>(null);
   const [drillPaymentMode, setDrillPaymentMode] = useState<string | null>(null);
   const [downloadingStatement, setDownloadingStatement] = useState(false);
+  const [emailingStatement, setEmailingStatement] = useState(false);
   const [showStatementMonthPicker, setShowStatementMonthPicker] = useState(false);
   const isGeneratingRef = useRef(false);
+  const isEmailingRef = useRef(false);
 
   const params = useLocalSearchParams<{ tab?: string }>();
   const [activeSegment, setActiveSegment] = useState<"charts" | "budgets">("charts");
   const { isDark } = useTheme();
+  const gradients = appGradients(colors);
   const { budgets, setBudget, deleteBudget, getBudgetForCategory } = useBudgets();
   const [showSetModal, setShowSetModal] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<CategoryId | null>(null);
@@ -262,221 +262,23 @@ export default function AnalyticsScreen() {
     isGeneratingRef.current = true;
     setDownloadingStatement(true);
     try {
-      const monthLabel = `${MONTH_NAMES[month - 1]} ${year}`;
-      const safeMonth = `${year}-${String(month).padStart(2, "0")}`;
-      const fileName = `WhisperLedger-Statement-${safeMonth}.pdf`;
+      const result = await generateAndSharePDF(
+        year,
+        month,
+        expensesThisMonth.map((expense) => ({
+          date: expense.date,
+          note: expense.note,
+          categoryId: expense.categoryId,
+          paymentMode: expense.paymentMode,
+          amount: expense.amount,
+        })),
+        user ? { uid: user.uid, name: user.name, email: user.email } : null
+      );
 
-      // Build rows
-      const sorted = expensesThisMonth.slice().sort((a, b) => a.date.localeCompare(b.date));
-      const rows = sorted.map((e, idx) => {
-        const cat = CATEGORIES.find((c) => c.id === e.categoryId)?.label || "Other";
-        const note = (e.note || "Expense").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        const stripe = idx % 2 === 0 ? "#f8fafc" : "#ffffff";
-        return `<tr style="background:${stripe}"><td style="padding:10px 12px;border-bottom:1px solid #e2e8f0">${idx + 1}</td><td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;white-space:nowrap">${e.date}</td><td style="padding:10px 12px;border-bottom:1px solid #e2e8f0">${note}</td><td style="padding:10px 12px;border-bottom:1px solid #e2e8f0">${cat}</td><td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;text-align:center">${(e.paymentMode || "—").toUpperCase()}</td><td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700;color:#0f172a">₹${Number(e.amount || 0).toLocaleString("en-IN")}</td></tr>`;
-      }).join("");
-
-      const catRows = sortedCats.map((cat, idx) => {
-        const pct = totalSpend > 0 ? Math.round(((totals[cat.id] || 0) / totalSpend) * 100) : 0;
-        const stripe = idx % 2 === 0 ? "#f8fafc" : "#ffffff";
-        return `<tr style="background:${stripe}"><td style="padding:9px 12px;border-bottom:1px solid #e2e8f0">${cat.label}</td><td style="padding:9px 12px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700">₹${Number(totals[cat.id] || 0).toLocaleString("en-IN")}</td><td style="padding:9px 12px;border-bottom:1px solid #e2e8f0;text-align:center;color:#64748b">${pct}%</td></tr>`;
-      }).join("");
-
-      const generatedOn = new Date().toLocaleString("en-IN", { dateStyle: "long", timeStyle: "short" });
-      const avgDay = expensesThisMonth.length > 0 ? Math.round(totalSpend / expensesThisMonth.length) : 0;
-
-      const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Helvetica Neue',Arial,sans-serif;background:#f1f5f9;color:#0f172a;padding:0}
-  .page{max-width:800px;margin:0 auto;background:#fff}
-  /* Header Band */
-  .header-band{background:#1e3a8a;padding:36px 40px 28px;color:#fff}
-  .bank-name{font-size:11px;letter-spacing:3px;text-transform:uppercase;opacity:.7;margin-bottom:8px}
-  .doc-title{font-size:26px;font-weight:700;letter-spacing:-.5px}
-  .doc-subtitle{font-size:13px;opacity:.75;margin-top:4px}
-  .header-meta{display:flex;justify-content:space-between;align-items:flex-end;margin-top:24px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.2)}
-  .meta-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;opacity:.6;margin-bottom:4px}
-  .meta-val{font-size:14px;font-weight:600}
-  /* Summary Bar */
-  .summary-bar{display:flex;background:#0f172a;padding:0}
-  .sum-cell{flex:1;padding:20px 24px;border-right:1px solid rgba(255,255,255,0.08)}
-  .sum-cell:last-child{border-right:none}
-  .sum-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#94a3b8;margin-bottom:6px}
-  .sum-val{font-size:20px;font-weight:700;color:#fff}
-  .sum-note{font-size:10px;color:#64748b;margin-top:2px}
-  /* Sections */
-  .section{padding:28px 40px}
-  .section-title{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#64748b;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #e2e8f0}
-  /* Tables */
-  table{width:100%;border-collapse:collapse;font-size:12.5px}
-  thead tr{background:#1e3a8a;color:#fff}
-  thead th{padding:10px 12px;text-align:left;font-weight:600;font-size:10px;letter-spacing:.5px;text-transform:uppercase}
-  thead th:last-child{text-align:right}
-  /* Footer */
-  .footer{background:#0f172a;padding:20px 40px;display:flex;justify-content:space-between;align-items:center}
-  .footer-brand{color:#fff;font-size:13px;font-weight:700;letter-spacing:1px}
-  .footer-note{color:#64748b;font-size:10px;text-align:right}
-</style></head><body>
-<div class="page">
-  <!-- Header -->
-  <div class="header-band">
-    <div class="bank-name">WhisperLedger</div>
-    <div class="doc-title">Monthly Expense Statement</div>
-    <div class="doc-subtitle">${monthLabel}</div>
-    <div class="header-meta">
-      <div><div class="meta-label">Account Holder</div><div class="meta-val">${user?.name || "Valued User"}</div><div style="font-size:11px;opacity:0.7">${user?.email || ""}</div></div>
-      <div><div class="meta-label">Statement Period</div><div class="meta-val">${monthLabel}</div></div>
-      <div><div class="meta-label">Generated On</div><div class="meta-val">${generatedOn}</div></div>
-    </div>
-  </div>
-
-  <!-- Summary Bar -->
-  <div class="summary-bar">
-    <div class="sum-cell">
-      <div class="sum-label">Total Spent</div>
-      <div class="sum-val">₹${Number(totalSpend || 0).toLocaleString("en-IN")}</div>
-      <div class="sum-note">${monthLabel}</div>
-    </div>
-    <div class="sum-cell">
-      <div class="sum-label">Avg per Transaction</div>
-      <div class="sum-val">₹${Number(avgDay || 0).toLocaleString("en-IN")}</div>
-      <div class="sum-note">across ${expensesThisMonth.length} entries</div>
-    </div>
-    <div class="sum-cell">
-      <div class="sum-label">Top Category</div>
-      <div class="sum-val" style="font-size:15px">${sortedCats[0]?.label || "—"}</div>
-      <div class="sum-note">₹${Number(totals[sortedCats[0]?.id] || 0).toLocaleString("en-IN")}</div>
-    </div>
-  </div>
-
-  <!-- Category Breakdown -->
-  <div class="section">
-    <div class="section-title">Category Breakdown</div>
-    <table>
-      <thead><tr><th>Category</th><th style="text-align:right">Amount</th><th style="text-align:center">Share</th></tr></thead>
-      <tbody>${catRows || "<tr><td colspan='3' style='padding:12px;text-align:center;color:#94a3b8'>No data</td></tr>"}</tbody>
-    </table>
-  </div>
-
-  <!-- Transaction Details -->
-  <div class="section" style="padding-top:0">
-    <div class="section-title">Transaction Details</div>
-    <table>
-      <thead><tr><th>#</th><th>Date</th><th>Description</th><th>Category</th><th style="text-align:center">Mode</th><th style="text-align:right">Amount</th></tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot><tr style="background:#eff6ff"><td colspan="5" style="padding:10px 12px;font-weight:700;font-size:13px">TOTAL</td><td style="padding:10px 12px;text-align:right;font-weight:700;font-size:14px;color:#1e3a8a">₹${Number(totalSpend || 0).toLocaleString("en-IN")}</td></tr></tfoot>
-    </table>
-  </div>
-
-  <!-- Footer -->
-  <div class="footer">
-    <div class="footer-brand">WhisperLedger</div>
-    <div class="footer-note">whisperledger.support@gmail.com<br/>This is a personal expense summary. Not a bank statement.</div>
-  </div>
-</div>
-</body></html>`;
-
-      if (Platform.OS === "web") {
-        const win = window.open("", "_blank");
-        if (!win) throw new Error("Popup blocked");
-        win.document.write(html);
-        win.document.close();
-        win.focus();
-        win.print();
-      } else {
-        // Generate PDF file with a 10-second safety timeout
-        const printPromise = Print.printToFileAsync({ html, base64: false });
-        const timeoutPromise = new Promise<{ uri: string }>((_, reject) => 
-          setTimeout(() => reject(new Error("Print process timed out after 10 seconds. Please try again.")), 10000)
-        );
-        const { uri } = await Promise.race([printPromise, timeoutPromise]);
-
-        // Show action sheet: Save to downloads OR send email from support directly
-        Alert.alert(
-          "PDF Statement Ready",
-          "Choose an option:",
-          [
-            {
-              text: "💾 Save to Downloads",
-              onPress: async () => {
-                try {
-                  const fs = FileSystem as any;
-                  if (Platform.OS === "android" && fs && fs.StorageAccessFramework) {
-                    const permissions = await fs.StorageAccessFramework.requestDirectoryPermissionsAsync();
-                    if (permissions.granted) {
-                      const fileUri = await fs.StorageAccessFramework.createFileAsync(
-                        permissions.directoryUri,
-                        fileName,
-                        'application/pdf'
-                      );
-                      const base64Data = await FileSystem.readAsStringAsync(uri, { encoding: "base64" });
-                      await FileSystem.writeAsStringAsync(fileUri, base64Data, { encoding: "base64" });
-                      Alert.alert("Saved Successfully", "Your statement has been saved directly to your local storage!");
-                    } else {
-                      // Fallback
-                      await Sharing.shareAsync(uri);
-                    }
-                  } else {
-                    // iOS or Fallback if native module is not built yet
-                    await Sharing.shareAsync(uri);
-                  }
-                } catch (err) {
-                  console.warn("Save PDF Error:", err);
-                  await Sharing.shareAsync(uri);
-                }
-              },
-            },
-            {
-              text: "📧 Send Email",
-              onPress: async () => {
-                try {
-                  if (!user || !user.email) {
-                    Alert.alert("Error", "You must be logged in to receive emails.");
-                    return;
-                  }
-
-                  const categoryTotals = sortedCats.map((cat) => ({
-                    label: cat.label,
-                    amount: totals[cat.id] || 0
-                  }));
-
-                  const expenses = expensesThisMonth.map((e) => {
-                    const categoryLabel = CATEGORIES.find((c) => c.id === e.categoryId)?.label || "Other";
-                    return {
-                      date: e.date,
-                      note: e.note || "Expense",
-                      categoryLabel,
-                      paymentMode: e.paymentMode || "none",
-                      amount: e.amount
-                    };
-                  });
-
-                  await addDoc(collection(db, "statement_requests"), {
-                    userId: user.uid,
-                    userEmail: user.email,
-                    userName: user.name || "Valued User",
-                    monthLabel,
-                    totalSpend,
-                    transactionCount: expensesThisMonth.length,
-                    categoryTotals,
-                    expenses,
-                    createdAt: serverTimestamp(),
-                    status: "pending"
-                  });
-
-                  Alert.alert(
-                    "Email Queued",
-                    "Your monthly statement has been generated and queued for delivery to your registered email address."
-                  );
-                } catch (err: any) {
-                  console.warn("Queue Email Error:", err);
-                  Alert.alert("Failed", "Could not send the email from support: " + err.message);
-                }
-              },
-            },
-            { text: "Cancel", style: "cancel" },
-          ]
-        );
+      if (result === "error") {
+        Alert.alert("Failed", "Could not generate the PDF statement.");
+      } else if (result === "unsupported") {
+        Alert.alert("Download unavailable", "Direct PDF download is only available on Android in this build.");
       }
     } catch (e) {
       console.warn("Failed to download statement:", e);
@@ -487,12 +289,42 @@ export default function AnalyticsScreen() {
     }
   };
 
+  const emailMonthlyStatement = async () => {
+    if (isEmailingRef.current) return;
+    if (expensesThisMonth.length === 0) {
+      Alert.alert("No data", "No expenses found for this month.");
+      return;
+    }
+
+    isEmailingRef.current = true;
+    setEmailingStatement(true);
+    try {
+      const result = await queueMonthlyStatementEmail(
+        year,
+        month,
+        expensesThisMonth.map((expense) => ({
+          date: expense.date,
+          note: expense.note,
+          categoryId: expense.categoryId,
+          paymentMode: expense.paymentMode,
+          amount: expense.amount,
+        })),
+        user ? { uid: user.uid, name: user.name, email: user.email } : null
+      );
+
+      if (result === "error") return;
+    } finally {
+      isEmailingRef.current = false;
+      setEmailingStatement(false);
+    }
+  };
+
   const s = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
       paddingTop: topPad + 14,
       paddingBottom: 12,
-      backgroundColor: colors.card,
+      backgroundColor: colors.headerBg,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.border,
     },
@@ -508,26 +340,18 @@ export default function AnalyticsScreen() {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      backgroundColor: colors.card,
-      borderRadius: 16,
       paddingVertical: 10,
       paddingHorizontal: 16,
       marginHorizontal: 16,
       marginTop: 16,
       marginBottom: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: colors.text === "#f8fafc" ? 0.2 : 0.02,
-      shadowRadius: 6,
-      elevation: 2,
+      ...surfaceStyle(colors, false),
     },
     navBtn: {
       width: 32,
       height: 32,
       borderRadius: 8,
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+      backgroundColor: isDark ? "rgba(45, 212, 191, 0.10)" : "#E8F3EF",
       alignItems: "center",
       justifyContent: "center",
     },
@@ -538,18 +362,10 @@ export default function AnalyticsScreen() {
       color: colors.foreground,
     },
     statementCard: {
-      backgroundColor: colors.card,
-      borderRadius: 16,
       marginHorizontal: 16,
       padding: 16,
       marginBottom: 14,
-      borderWidth: 1,
-      borderColor: colors.border,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: colors.text === "#f8fafc" ? 0.15 : 0.02,
-      shadowRadius: 6,
-      elevation: 2,
+      ...surfaceStyle(colors),
     },
     statementHeader: {
       flexDirection: "row",
@@ -561,9 +377,9 @@ export default function AnalyticsScreen() {
       width: 38,
       height: 38,
       borderRadius: 10,
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(99, 102, 241, 0.15)" : "rgba(99, 102, 241, 0.08)",
       alignItems: "center",
       justifyContent: "center",
+      ...iconSurface(colors),
     },
     statementTitle: {
       fontSize: 14,
@@ -581,7 +397,7 @@ export default function AnalyticsScreen() {
       flexDirection: "row",
       alignItems: "center",
       gap: 6,
-      backgroundColor: colors.text === "#f8fafc" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.03)",
+      backgroundColor: isDark ? "rgba(248,250,247,0.04)" : "#F8F5EE",
       paddingVertical: 6,
       paddingHorizontal: 12,
       borderRadius: 10,
@@ -607,6 +423,23 @@ export default function AnalyticsScreen() {
     },
     statementDownloadText: {
       color: "#fff",
+      fontFamily: "Inter_700Bold",
+      fontSize: 13,
+    },
+    statementEmailBtn: {
+      marginTop: 10,
+      minHeight: 42,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: isDark ? "rgba(248,250,247,0.04)" : "#fff",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+    },
+    statementEmailText: {
+      color: colors.primary,
       fontFamily: "Inter_700Bold",
       fontSize: 13,
     },
@@ -870,7 +703,7 @@ export default function AnalyticsScreen() {
                 onPress={downloadMonthlyStatement}
               >
                 <LinearGradient
-                  colors={["#6366f1", "#7c3aed"]}
+                  colors={gradients.action}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={s.statementDownloadGrad}
@@ -880,6 +713,18 @@ export default function AnalyticsScreen() {
                     {downloadingStatement ? "Preparing Statement..." : `Download PDF Statement`}
                   </Text>
                 </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[s.statementEmailBtn, emailingStatement && { opacity: 0.75 }]}
+                activeOpacity={0.8}
+                disabled={emailingStatement}
+                onPress={emailMonthlyStatement}
+              >
+                <Feather name="mail" size={14} color={colors.primary} />
+                <Text style={s.statementEmailText}>
+                  {emailingStatement ? "Queuing Email..." : "Email Statement"}
+                </Text>
               </TouchableOpacity>
             </View>
 

@@ -774,19 +774,19 @@ export default function LoginScreen() {
   const getSlideGradient = (idx: number, dark: boolean): [string, string] => {
     if (dark) {
       switch (idx) {
-        case 0: return ["#0f172a", "#1e293b"];
-        case 1: return ["#1e1b4b", "#312e81"];
-        case 2: return ["#2e1065", "#4c1d95"];
-        case 3: return ["#083344", "#0891b2"];
-        default: return ["#0f172a", "#1e293b"];
+        case 0: return ["#08110F", "#12352F"];
+        case 1: return ["#102A24", "#164E43"];
+        case 2: return ["#2F2418", "#5B3412"];
+        case 3: return ["#0B2530", "#0E7490"];
+        default: return ["#08110F", "#12352F"];
       }
     } else {
       switch (idx) {
-        case 0: return ["#f8fafc", "#f1f5f9"];
-        case 1: return ["#eef2ff", "#e0e7ff"];
-        case 2: return ["#faf5ff", "#f3e8ff"];
-        case 3: return ["#ecfeff", "#cffafe"];
-        default: return ["#f8fafc", "#f1f5f9"];
+        case 0: return ["#F7F4EF", "#EFE8DD"];
+        case 1: return ["#E8F3EF", "#FFFFFF"];
+        case 2: return ["#FFF4D9", "#F7F4EF"];
+        case 3: return ["#E0F2FE", "#E8F3EF"];
+        default: return ["#F7F4EF", "#EFE8DD"];
       }
     }
   };
@@ -839,15 +839,15 @@ export default function LoginScreen() {
                   styles.iconOuter, 
                   { 
                     transform: [{ scale: iconScale }],
-                    backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(99, 102, 241, 0.08)",
-                    borderColor: isDark ? "rgba(255,255,255,0.15)" : "rgba(99, 102, 241, 0.15)",
+                    backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(15, 118, 110, 0.10)",
+                    borderColor: isDark ? "rgba(255,255,255,0.15)" : "rgba(15, 118, 110, 0.18)",
                     shadowColor: isDark ? "#000" : colors.primary,
                   }
                 ]}
               >
                 <Feather name={slide.icon} size={64} color={isDark ? "#fff" : colors.primary} />
               </Animated.View>
-              <Text style={[styles.slideSub, { color: isDark ? "#38bdf8" : "#4f46e5" }]}>{slide.subtitle}</Text>
+              <Text style={[styles.slideSub, { color: isDark ? "#5EEAD4" : colors.primary }]}>{slide.subtitle}</Text>
               <Text style={[styles.slideTitle, { color: isDark ? "#fff" : colors.foreground }]}>{slide.title}</Text>
               <Text style={[styles.slideDesc, { color: isDark ? "rgba(255,255,255,0.75)" : colors.mutedForeground }]}>{slide.desc}</Text>
             </Animated.View>
@@ -873,7 +873,7 @@ export default function LoginScreen() {
               <Animated.View style={[styles.actionBtn, { transform: [{ scale: pulseAnim }] }]}>
                 <TouchableOpacity onPress={handleNextSlide} activeOpacity={0.95}>
                   <LinearGradient
-                    colors={currentSlide === ONBOARDING_SLIDES.length - 1 ? ["#10b981", "#059669"] : ["#4f46e5", "#6366f1"]}
+                    colors={currentSlide === ONBOARDING_SLIDES.length - 1 ? ["#0F766E", "#115E59"] : ["#F59E0B", "#F97316"]}
                     style={styles.actionBtnGrad}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
@@ -890,7 +890,7 @@ export default function LoginScreen() {
       )}
 
       {/* Main Login Screen View */}
-      <LinearGradient colors={colors.text === "#f8fafc" ? ["#0B0D18", "#080A10"] : ["#E5E7EB", "#F3F4F6"]} style={styles.gradient}>
+      <LinearGradient colors={colors.text === "#f8fafc" ? ["#080D0C", "#0F1B18"] : ["#F7F4EF", "#EFE8DD"]} style={styles.gradient}>
         {/* Glowing glassmorphism drifting cosmic bubbles */}
         <Animated.View
           style={[
@@ -991,7 +991,7 @@ export default function LoginScreen() {
                       Verification Email Sent! 📩
                     </Text>
                     <Text style={{ fontSize: 12, color: colors.foreground, fontFamily: "Inter_400Regular", marginTop: 2, lineHeight: 16 }}>
-                      We sent a verification link to <Text style={{ fontWeight: "700", color: "#6366f1" }}>{params.email}</Text>. Please open your inbox, click the link to verify, then sign in below.
+                      We sent a verification link to <Text style={{ fontWeight: "700", color: colors.primary }}>{params.email}</Text>. Please open your inbox, click the link to verify, then sign in below.
                     </Text>
                   </View>
                 </View>
@@ -1081,8 +1081,8 @@ export default function LoginScreen() {
                   disabled={loading}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Feather name="log-in" size={18} color="#4f46e5" style={{ marginRight: 10 }} />
-                    <Text style={[styles.loginBtnText, { color: "#4f46e5" }]}>Sign in with Google</Text>
+                    <Feather name="log-in" size={18} color={colors.primary} style={{ marginRight: 10 }} />
+                    <Text style={[styles.loginBtnText, { color: colors.primary }]}>Sign in with Google</Text>
                   </View>
                 </TouchableOpacity>
 
@@ -1174,7 +1174,7 @@ export default function LoginScreen() {
                       activeOpacity={0.85}
                     >
                       <LinearGradient
-                        colors={["#4f46e5", "#6366f1"]}
+                        colors={["#0F766E", "#115E59"]}
                         style={styles.modalSubmitBtnGrad}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 0 }}
