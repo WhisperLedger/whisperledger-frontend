@@ -19,8 +19,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CATEGORIES, CategoryId, PaymentMode, useExpenses } from "@/context/ExpenseContext";
+import { useHousehold } from "@/context/HouseholdContext";
 import { useColors } from "@/hooks/useColors";
 import MiniCalendar from "./MiniCalendar";
+import SplitExpenseSelector, { SplitState } from "./SplitExpenseSelector";
 import { isDarkPalette } from "@/utils/designSystem";
 import { inferExpenseDraft } from "@/utils/expenseSmartInput";
 import MerchantLogo from "./MerchantLogo";
@@ -58,8 +60,15 @@ interface Props {
     paymentMode?: PaymentMode;
     note: string;
     merchant?: string;
+    location?: string;
     date: string;
+    isHouseholdExpense?: boolean;
+    payerUid?: string;
+    payerName?: string;
+    splitType?: any;
+    splits?: any[];
   } | null;
+  defaultIsHousehold?: boolean;
 }
 
 const QUICK_INCREMENTS = [50, 100, 500, 2000];
@@ -69,6 +78,7 @@ const GENZ_VIBES: { label: string; icon: string; category: CategoryId }[] = [
   { label: "Fast Food", icon: "shopping-bag", category: "food_outside" },
   { label: "Cab / Auto", icon: "navigation", category: "travel" },
   { label: "Grocery Drop", icon: "shopping-cart", category: "groceries" },
+  { label: "Maid / Cook", icon: "user-check", category: "maid_cook" },
   { label: "Movie Night", icon: "film", category: "entertainment" },
   { label: "Party / Treat", icon: "gift", category: "entertainment" },
   { label: "Utility Bill", icon: "zap", category: "utilities" },
@@ -82,21 +92,28 @@ function paymentIcon(mode: PaymentMode) {
   return "minus-circle";
 }
 
-export default function AddExpenseModal({ visible, onClose, defaultDate, editExpense }: Props) {
+export default function AddExpenseModal({
+  visible,
+  onClose,
+  defaultDate,
+  editExpense,
+  defaultIsHousehold = false,
+}: Props) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { addExpense, updateExpense, getTotalForDate } = useExpenses();
+  const { activeSpace, addHouseholdExpense, updateHouseholdExpense, currentHousehold } = useHousehold();
   const isDark = isDarkPalette(colors);
 
   const [amount, setAmount] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<CategoryId>("groceries");
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("upi");
   const [note, setNote] = useState("");
+  const [location, setLocation] = useState("");
   const [date, setDate] = useState(todayISO());
   const [saving, setSaving] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
-  const [splitCount, setSplitCount] = useState(1);
-  const [showSplit, setShowSplit] = useState(false);
+  const [splitState, setSplitState] = useState<SplitState | null>(null);
 
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const amountRef = useRef<TextInput>(null);
@@ -116,19 +133,19 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
   useEffect(() => {
     if (visible) {
       setShowCalendar(false);
-      setShowSplit(false);
-      setSplitCount(1);
       if (editExpense) {
         setAmount(editExpense.amount ? editExpense.amount.toString() : "");
         setSelectedCategory(editExpense.categoryId || "groceries");
         setPaymentMode(editExpense.paymentMode || "upi");
         setNote(editExpense.note || "");
+        setLocation(editExpense.location || "");
         setDate(editExpense.date || todayISO());
       } else {
         setAmount("");
         setSelectedCategory("groceries");
         setPaymentMode("upi");
         setNote("");
+        setLocation("");
         setDate(defaultDate || todayISO());
       }
       Animated.spring(slideAnim, {
@@ -157,13 +174,13 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
 
       Animated.parallel([
         Animated.timing(keyboardPaddingAnim, {
-          toValue: height - 20,
-          duration: Platform.OS === "ios" ? e.duration : 250,
+          toValue: Platform.OS === "ios" ? Math.max(0, height - 20) : 16,
+          duration: Platform.OS === "ios" ? (e.duration || 250) : 150,
           useNativeDriver: false,
         }),
         Animated.timing(sheetPaddingAnim, {
-          toValue: 8,
-          duration: Platform.OS === "ios" ? e.duration : 250,
+          toValue: insets.bottom + 12,
+          duration: Platform.OS === "ios" ? (e.duration || 250) : 150,
           useNativeDriver: false,
         })
       ]).start();
@@ -175,12 +192,12 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
       Animated.parallel([
         Animated.timing(keyboardPaddingAnim, {
           toValue: 24,
-          duration: Platform.OS === "ios" ? e.duration : 200,
+          duration: Platform.OS === "ios" ? (e.duration || 200) : 150,
           useNativeDriver: false,
         }),
         Animated.timing(sheetPaddingAnim, {
           toValue: insets.bottom + 20,
-          duration: Platform.OS === "ios" ? e.duration : 200,
+          duration: Platform.OS === "ios" ? (e.duration || 200) : 150,
           useNativeDriver: false,
         })
       ]).start();
@@ -217,7 +234,8 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
   const projectedDailyTotal = Math.max(0, getTotalForDate(date) - editAmountOnSelectedDate + parsedAmount);
   const inferredMerchant = smartDraft.merchant || editExpense?.merchant || "";
   const hasSmartSuggestion = note.trim().length > 2 && smartDraft.signals.length > 0;
-  const saveDisabled = !parsedAmount || parsedAmount <= 0 || isFuture || saving;
+  const isSplitInvalid = splitState?.isHousehold && !splitState.isValid;
+  const saveDisabled = !parsedAmount || parsedAmount <= 0 || isFuture || saving || isSplitInvalid;
 
   const handleApplySmartDraft = () => {
     if (!hasSmartSuggestion) return;
@@ -234,27 +252,49 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
 
   const handleSave = useCallback(async () => {
     const parsed = parseFloat(amount);
-    if (!parsed || parsed <= 0 || isFutureISODate(date)) return;
+    if (!parsed || parsed <= 0 || isFutureISODate(date) || (splitState?.isHousehold && !splitState.isValid)) return;
     setSaving(true);
     safeHaptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const normalizedDate = normalizeISODate(date);
     try {
-      const finalNote = showSplit && splitCount > 1
-        ? `${note.trim() ? note.trim() + " " : ""}(Split ÷${splitCount}: ₹${(parsed / splitCount).toFixed(0)}/person)`
-        : note.trim();
-      const expensePayload = {
-        amount: parsed,
-        categoryId: selectedCategory,
-        paymentMode,
-        note: finalNote,
-        date: normalizedDate,
-        ...(inferredMerchant ? { merchant: inferredMerchant } : {}),
-      };
+      if (splitState?.isHousehold && currentHousehold) {
+        // Household Split Save
+        const householdPayload = {
+          amount: parsed,
+          categoryId: selectedCategory,
+          paymentMode,
+          note: note.trim(),
+          location: location.trim() || undefined,
+          date: normalizedDate,
+          payerUid: splitState.payerUid,
+          payerName: splitState.payerName,
+          splitType: splitState.splitType,
+          splits: splitState.splits,
+          ...(inferredMerchant ? { merchant: inferredMerchant } : {}),
+        };
 
-      if (editExpense) {
-        await updateExpense(editExpense.id, expensePayload);
+        if (editExpense?.isHouseholdExpense) {
+          await updateHouseholdExpense(editExpense.id, householdPayload);
+        } else {
+          await addHouseholdExpense(householdPayload);
+        }
       } else {
-        await addExpense(expensePayload);
+        // Personal Spend Save
+        const expensePayload = {
+          amount: parsed,
+          categoryId: selectedCategory,
+          paymentMode,
+          note: note.trim(),
+          location: location.trim() || undefined,
+          date: normalizedDate,
+          ...(inferredMerchant ? { merchant: inferredMerchant } : {}),
+        };
+
+        if (editExpense) {
+          await updateExpense(editExpense.id, expensePayload);
+        } else {
+          await addExpense(expensePayload);
+        }
       }
       onClose();
     } catch {
@@ -262,7 +302,23 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
     } finally {
       setSaving(false);
     }
-  }, [amount, date, editExpense, inferredMerchant, note, paymentMode, selectedCategory, updateExpense, addExpense, onClose, showSplit, splitCount]);
+  }, [
+    amount,
+    date,
+    editExpense,
+    inferredMerchant,
+    note,
+    location,
+    paymentMode,
+    selectedCategory,
+    updateExpense,
+    addExpense,
+    updateHouseholdExpense,
+    addHouseholdExpense,
+    onClose,
+    splitState,
+    currentHousehold,
+  ]);
 
   const styles = StyleSheet.create({
     overlay: {
@@ -713,7 +769,13 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
   });
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent={true}
+      onRequestClose={onClose}
+    >
       <Pressable style={styles.overlay} onPress={() => { Keyboard.dismiss(); onClose(); }}>
         <KeyboardAvoidingView
           style={{ flex: 1, justifyContent: "flex-end" }}
@@ -908,7 +970,86 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
                   placeholderTextColor={colors.mutedForeground}
                   returnKeyType="done"
                   onSubmitEditing={Keyboard.dismiss}
+                  onFocus={() => {
+                    setTimeout(() => {
+                      scrollViewRef.current?.scrollToEnd({ animated: true });
+                    }, 200);
+                  }}
                 />
+
+                {/* Location Tag */}
+                <Text style={styles.sectionLabel}>Location / Place (Optional)</Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: 14,
+                    paddingHorizontal: 12,
+                    backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "#F8FAFC",
+                  }}
+                >
+                  <Feather name="map-pin" size={14} color={colors.primary} style={{ marginRight: 8 }} />
+                  <TextInput
+                    style={{
+                      flex: 1,
+                      paddingVertical: 10,
+                      fontSize: 13,
+                      color: colors.foreground,
+                      fontFamily: "Inter_500Medium",
+                    }}
+                    value={location}
+                    onChangeText={setLocation}
+                    placeholder="e.g. Indiranagar, Cafe Coffee Day, Office"
+                    placeholderTextColor={colors.mutedForeground}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                    onFocus={() => {
+                      setTimeout(() => {
+                        scrollViewRef.current?.scrollToEnd({ animated: true });
+                      }, 200);
+                    }}
+                  />
+                </View>
+
+                {/* Location Quick Chips */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 6, marginTop: 6, marginBottom: 4 }}
+                >
+                  {["Home", "Office", "Market", "Cafe", "Restaurant", "Mall", "Airport"].map((loc) => (
+                    <TouchableOpacity
+                      key={loc}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 8,
+                        backgroundColor:
+                          location === loc
+                            ? colors.primary
+                            : isDark
+                            ? "rgba(255,255,255,0.06)"
+                            : "#F1F5F9",
+                      }}
+                      onPress={() => {
+                        safeHaptics.selectionAsync();
+                        setLocation(location === loc ? "" : loc);
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontFamily: "Inter_600SemiBold",
+                          color: location === loc ? "#FFFFFF" : colors.mutedForeground,
+                        }}
+                      >
+                        {loc}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
 
                 {hasSmartSuggestion && (
                   <View style={styles.smartCard}>
@@ -934,62 +1075,13 @@ export default function AddExpenseModal({ visible, onClose, defaultDate, editExp
                   </View>
                 )}
 
-                {/* Split Bill Calculator Toggle */}
-                {parsedAmount > 0 && (
-                  <View style={styles.splitContainer}>
-                    <TouchableOpacity
-                      style={styles.splitHeader}
-                      onPress={() => {
-                        safeHaptics.selectionAsync();
-                        setShowSplit(!showSplit);
-                        if (!showSplit && splitCount === 1) setSplitCount(2);
-                      }}
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <Feather name="users" size={16} color={colors.primary} />
-                        <Text style={styles.splitTitle}>
-                          {showSplit ? "Split Bill Active" : "Split with Friends?"}
-                        </Text>
-                      </View>
-                      <Feather name={showSplit ? "chevron-up" : "chevron-down"} size={16} color={colors.primary} />
-                    </TouchableOpacity>
-
-                    {showSplit && (
-                      <View style={styles.splitCounterRow}>
-                        <TouchableOpacity
-                          style={[styles.splitBtn, { opacity: splitCount <= 2 ? 0.5 : 1 }]}
-                          onPress={() => {
-                            if (splitCount > 2) {
-                              safeHaptics.selectionAsync();
-                              setSplitCount(splitCount - 1);
-                            }
-                          }}
-                          disabled={splitCount <= 2}
-                        >
-                          <Feather name="minus" size={16} color="#fff" />
-                        </TouchableOpacity>
-
-                        <Text style={styles.splitCountText}>{splitCount} people</Text>
-
-                        <TouchableOpacity
-                          style={[styles.splitBtn, { opacity: splitCount >= 20 ? 0.5 : 1 }]}
-                          onPress={() => {
-                            if (splitCount < 20) {
-                              safeHaptics.selectionAsync();
-                              setSplitCount(splitCount + 1);
-                            }
-                          }}
-                          disabled={splitCount >= 20}
-                        >
-                          <Feather name="plus" size={16} color="#fff" />
-                        </TouchableOpacity>
-
-                        <Text style={styles.splitResultText}>
-                          ₹{(parsedAmount / splitCount).toFixed(0)} / person
-                        </Text>
-                      </View>
-                    )}
-                  </View>
+                {/* Household Split / Personal Selector */}
+                {parsedAmount > 0 && currentHousehold && (
+                  <SplitExpenseSelector
+                    amount={parsedAmount}
+                    onSplitChange={setSplitState}
+                    defaultIsHousehold={defaultIsHousehold || activeSpace === "household" || !!editExpense?.isHouseholdExpense}
+                  />
                 )}
 
                 {/* Date Selection */}

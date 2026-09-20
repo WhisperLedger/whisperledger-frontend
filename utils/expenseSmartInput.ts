@@ -57,6 +57,7 @@ const MERCHANT_RULES: MerchantRule[] = [
 ];
 
 const KEYWORD_CATEGORY_RULES: Array<{ keys: string[]; categoryId: CategoryId }> = [
+  { keys: ["maid", "cook", "house help", "househelp", "bai", "cleaning", "chef", "kamwali", "domestic help", "cook salary", "maid salary"], categoryId: "maid_cook" },
   { keys: ["coffee", "lunch", "dinner", "breakfast", "pizza", "burger", "biryani", "restaurant", "cafe"], categoryId: "food_outside" },
   { keys: ["grocery", "groceries", "vegetable", "fruit", "milk"], categoryId: "groceries" },
   { keys: ["cab", "auto", "taxi", "fuel", "petrol", "diesel", "metro"], categoryId: "travel" },

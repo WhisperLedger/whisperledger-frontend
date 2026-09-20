@@ -30,14 +30,17 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ExpenseProvider } from "@/context/ExpenseContext";
 import { ReceivablesProvider } from "@/context/ReceivablesContext";
 import { BudgetProvider } from "@/context/BudgetContext";
+import { HouseholdProvider } from "@/context/HouseholdContext";
 import { SubscriptionProvider } from "@/context/SubscriptionContext";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
+import BiometricGate from "@/components/BiometricGate";
 import PaywallModal from "@/components/PaywallModal";
 import { useColors } from "@/hooks/useColors";
 import {
   DAILY_REMINDER_TYPE,
   logUserNotification,
   markSMSApprovalProcessed,
+  requestNotificationPermissions,
   setupNotifications,
   SMSAction,
   SMS_APPROVAL_TYPE,
@@ -47,7 +50,6 @@ import { classifyCategory } from "@/utils/smsParser";
 import { collection, doc, getDocs, limit, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import * as Device from "expo-device";
-import { BiometricGate } from "@/components/BiometricGate";
 
 // Initialize Sentry for crash reporting and performance monitoring
 Sentry.init({
@@ -160,6 +162,7 @@ function RootLayoutNav() {
 
   useEffect(() => {
     setupNotifications();
+    requestNotificationPermissions().catch(() => null);
 
     // Check for cold-launch notification deep links immediately on startup
     if (Notifications) {
@@ -382,24 +385,22 @@ function RootLayoutNav() {
   const { isDark } = useTheme();
 
   return (
-    <BiometricGate>
-      <>
-        <StatusBar style={isDark ? "light" : "dark"} />
-        {isLoading ? (
-          <View style={{ flex: 1, backgroundColor: isDark ? "#050814" : "#F3F4F6" }} />
-        ) : (
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="login" options={{ headerShown: false, animation: "fade" }} />
-            <Stack.Screen name="register" options={{ headerShown: false, animation: "slide_from_right" }} />
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="recovery" options={{ headerShown: false, animation: "slide_from_right" }} />
-            <Stack.Screen name="notifications" options={{ headerShown: false, presentation: "card" }} />
-            <Stack.Screen name="about" options={{ presentation: "modal", headerShown: false }} />
-            <Stack.Screen name="faq" options={{ presentation: "modal", headerShown: false }} />
-          </Stack>
-        )}
-      </>
-    </BiometricGate>
+    <>
+      <StatusBar style={isDark ? "light" : "dark"} />
+      {isLoading ? (
+        <View style={{ flex: 1, backgroundColor: isDark ? "#050814" : "#F3F4F6" }} />
+      ) : (
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="login" options={{ headerShown: false, animation: "fade" }} />
+          <Stack.Screen name="register" options={{ headerShown: false, animation: "slide_from_right" }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="recovery" options={{ headerShown: false, animation: "slide_from_right" }} />
+          <Stack.Screen name="notifications" options={{ headerShown: false, presentation: "card" }} />
+          <Stack.Screen name="about" options={{ presentation: "modal", headerShown: false }} />
+          <Stack.Screen name="faq" options={{ presentation: "modal", headerShown: false }} />
+        </Stack>
+      )}
+    </>
   );
 }
 
@@ -411,46 +412,36 @@ function AnimatedSplashScreen({ onFinish, fontsLoaded }: { onFinish: () => void;
   const [isFadingOut, setIsFadingOut] = useState(false);
   const [minTimeElapsed, setMinTimeElapsed] = useState(false);
 
-  // High-end zero-flicker seamless transition parameters
-  const logoScale = useRef(new Animated.Value(0.85)).current;
+  const logoScale = useRef(new Animated.Value(0.88)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const screenOpacity = useRef(new Animated.Value(1)).current;
   const auraPulse = useRef(new Animated.Value(1)).current;
-  const progressWidth = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Entrance animations
     Animated.parallel([
       Animated.spring(logoScale, {
         toValue: 1,
-        tension: 50,
-        friction: 7,
+        tension: 40,
+        friction: 6,
         useNativeDriver: true,
       }),
       Animated.timing(logoOpacity, {
         toValue: 1,
-        duration: 400,
+        duration: 350,
         useNativeDriver: true,
-      }),
-      Animated.timing(progressWidth, {
-        toValue: 1,
-        duration: 800,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: false,
       }),
     ]).start();
 
-    // Pulse aura animation
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(auraPulse, {
-          toValue: 1.12,
-          duration: 1200,
+          toValue: 1.15,
+          duration: 1100,
           useNativeDriver: true,
         }),
         Animated.timing(auraPulse, {
           toValue: 1,
-          duration: 1200,
+          duration: 1100,
           useNativeDriver: true,
         }),
       ])
@@ -459,7 +450,7 @@ function AnimatedSplashScreen({ onFinish, fontsLoaded }: { onFinish: () => void;
 
     const timer = setTimeout(() => {
       setMinTimeElapsed(true);
-    }, 700);
+    }, 600);
 
     return () => {
       clearTimeout(timer);
@@ -472,13 +463,13 @@ function AnimatedSplashScreen({ onFinish, fontsLoaded }: { onFinish: () => void;
       setIsFadingOut(true);
       Animated.parallel([
         Animated.timing(logoScale, {
-          toValue: 0.95,
-          duration: 250,
+          toValue: 0.94,
+          duration: 200,
           useNativeDriver: true,
         }),
         Animated.timing(screenOpacity, {
           toValue: 0,
-          duration: 250,
+          duration: 200,
           useNativeDriver: true,
         }),
       ]).start(() => {
@@ -493,38 +484,33 @@ function AnimatedSplashScreen({ onFinish, fontsLoaded }: { onFinish: () => void;
         setIsFadingOut(true);
         Animated.parallel([
           Animated.timing(logoScale, {
-            toValue: 0.95,
-            duration: 250,
+            toValue: 0.94,
+            duration: 200,
             useNativeDriver: true,
           }),
           Animated.timing(screenOpacity, {
             toValue: 0,
-            duration: 250,
+            duration: 200,
             useNativeDriver: true,
           }),
         ]).start(() => {
           onFinish();
         });
       }
-    }, 1600);
+    }, 1300);
 
     return () => clearTimeout(timer);
   }, [isFadingOut]);
 
-  const animatedProgressWidth = progressWidth.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0%", "100%"],
-  });
-
   return (
     <Animated.View style={[splashStyles.splashContainer, { opacity: screenOpacity }]}>
       <LinearGradient
-        colors={["#0B0D18", "#1E1B4B", "#050711"]}
+        colors={["#080A10", "#0D111E", "#080A10"]}
         style={splashStyles.splashBackground}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       >
-        {/* Ambient Glowing Aura */}
+        {/* Creative Ambient Glowing Aura */}
         <Animated.View
           style={[
             splashStyles.auraGlow,
@@ -544,56 +530,15 @@ function AnimatedSplashScreen({ onFinish, fontsLoaded }: { onFinish: () => void;
             ]}
           >
             <Image
-              source={require("../assets/images/splash.png")}
+              source={require("../assets/images/icon.png")}
               style={splashStyles.splashLogoImage}
             />
           </Animated.View>
 
-          {/* Typography */}
+          {/* Clean Brand Title */}
           <Animated.Text style={[splashStyles.brandTitle, { opacity: logoOpacity }]}>
             WhisperLedger
           </Animated.Text>
-
-          <Animated.Text style={[splashStyles.brandTagline, { opacity: logoOpacity }]}>
-            POST-PURCHASE MONEY RECOVERY AGENT
-          </Animated.Text>
-
-          {/* Feature Badge Chips */}
-          <Animated.View style={[splashStyles.featureChipsRow, { opacity: logoOpacity }]}>
-            <View style={splashStyles.featureChip}>
-              <Text style={splashStyles.featureChipText}>💰 Money Recovery</Text>
-            </View>
-            <View style={splashStyles.featureChip}>
-              <Text style={splashStyles.featureChipText}>🔒 Zero-Knowledge</Text>
-            </View>
-            <View style={splashStyles.featureChip}>
-              <Text style={splashStyles.featureChipText}>⚡ SMS Auto-Sync</Text>
-            </View>
-          </Animated.View>
-
-          {/* Glowing Shimmer Progress Bar */}
-          <View style={splashStyles.progressContainer}>
-            <View style={splashStyles.progressTrack}>
-              <Animated.View
-                style={[
-                  splashStyles.progressFill,
-                  { width: animatedProgressWidth },
-                ]}
-              >
-                <LinearGradient
-                  colors={["#0066FF", "#3882FF"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={StyleSheet.absoluteFill}
-                />
-              </Animated.View>
-            </View>
-          </View>
-
-          <View style={splashStyles.privacyPill}>
-            <Text style={splashStyles.privacyDot}>●</Text>
-            <Text style={splashStyles.privacyText}>100% PRIVATE & OFFLINE</Text>
-          </View>
         </View>
       </LinearGradient>
     </Animated.View>
@@ -612,31 +557,30 @@ const splashStyles = StyleSheet.create({
   },
   auraGlow: {
     position: "absolute",
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    backgroundColor: "rgba(0, 102, 255, 0.18)",
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: "rgba(56, 130, 255, 0.16)",
   },
   splashCenterWrap: {
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 32,
   },
   splashLogoWrap: {
-    width: 104,
-    height: 104,
-    borderRadius: 26,
+    width: 92,
+    height: 92,
+    borderRadius: 24,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "rgba(0, 102, 255, 0.4)",
-    marginBottom: 20,
-    shadowColor: "#0066FF",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 12,
+    borderWidth: 1.5,
+    borderColor: "rgba(56, 130, 255, 0.4)",
+    marginBottom: 18,
+    shadowColor: "#3882FF",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4,
+    shadowRadius: 18,
+    elevation: 10,
   },
   splashLogoImage: {
     width: "100%",
@@ -644,77 +588,10 @@ const splashStyles = StyleSheet.create({
     resizeMode: "cover",
   },
   brandTitle: {
-    fontSize: 34,
+    fontSize: 28,
     fontFamily: "Inter_700Bold",
     color: "#F8FAFC",
     letterSpacing: -0.5,
-    marginBottom: 6,
-  },
-  brandTagline: {
-    fontSize: 11,
-    fontFamily: "Inter_600SemiBold",
-    color: "#818CF8",
-    letterSpacing: 1.2,
-    marginBottom: 20,
-  },
-  featureChipsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 8,
-    marginBottom: 32,
-  },
-  featureChip: {
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
-  },
-  featureChipText: {
-    color: "#CBD5E1",
-    fontSize: 11,
-    fontFamily: "Inter_500Medium",
-  },
-  progressContainer: {
-    width: 160,
-    height: 4,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 28,
-  },
-  progressTrack: {
-    width: "100%",
-    height: 3,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 2,
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    borderRadius: 2,
-  },
-  privacyPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(16, 185, 129, 0.12)",
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(16, 185, 129, 0.25)",
-  },
-  privacyDot: {
-    color: "#10B981",
-    fontSize: 10,
-    marginRight: 6,
-  },
-  privacyText: {
-    color: "#34D399",
-    fontSize: 11,
-    fontFamily: "Inter_600SemiBold",
-    letterSpacing: 0.6,
   },
 });
 
@@ -758,24 +635,28 @@ export default function RootLayout() {
               <SubscriptionProvider>
                 <ExpenseProvider>
                   <ReceivablesProvider>
-                    <BudgetProvider>
-                      <GestureHandlerRootView style={{ flex: 1 }}>
-                        {resolvedLoaded ? (
-                          <>
-                            <RootLayoutNav />
-                            <PaywallModal />
-                          </>
-                        ) : (
-                          <View style={{ flex: 1, backgroundColor: "#FFFFFF" }} />
-                        )}
-                        {!splashFinished && (
-                          <AnimatedSplashScreen
-                            onFinish={() => setSplashFinished(true)}
-                            fontsLoaded={resolvedLoaded}
-                          />
-                        )}
-                      </GestureHandlerRootView>
-                    </BudgetProvider>
+                    <HouseholdProvider>
+                      <BudgetProvider>
+                        <GestureHandlerRootView style={{ flex: 1 }}>
+                          {resolvedLoaded ? (
+                            <>
+                              <BiometricGate>
+                                <RootLayoutNav />
+                              </BiometricGate>
+                              <PaywallModal />
+                            </>
+                          ) : (
+                            <View style={{ flex: 1, backgroundColor: "#FFFFFF" }} />
+                          )}
+                          {!splashFinished && (
+                            <AnimatedSplashScreen
+                              onFinish={() => setSplashFinished(true)}
+                              fontsLoaded={resolvedLoaded}
+                            />
+                          )}
+                        </GestureHandlerRootView>
+                      </BudgetProvider>
+                    </HouseholdProvider>
                   </ReceivablesProvider>
                 </ExpenseProvider>
               </SubscriptionProvider>

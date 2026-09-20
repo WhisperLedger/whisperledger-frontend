@@ -1,14 +1,18 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { addDoc, collection, doc, onSnapshot, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { useAuth } from "./AuthContext";
 import { db } from "@/lib/firebase";
 import { safeHaptics } from "@/utils/haptics";
 import * as Haptics from "expo-haptics";
 import {
+  APP_TRIAL_DAYS,
   DEFAULT_PLAN_CONFIG,
+  createAppTrialSubscription,
   hasActiveProAccess,
+  isUpgradeablePlan,
   normalizePlanConfig,
+  resolveEffectiveSubscription,
   resolveUserSubscription,
 } from "@/utils/subscriptionModel";
 import type {
@@ -26,19 +30,38 @@ interface SubscriptionContextValue {
   plan: SubscriptionPlan;
   isPro: boolean;
   isLifetime: boolean;
+  trialUsed: boolean;
   expiresAt: number | null;
   planConfig: PlanConfig;
   paywallVisible: boolean;
   paywallFeature: string;
+  pendingProRequest: boolean;
+  pendingProPlan: "monthly" | "yearly" | null;
   openPaywall: (featureName?: string) => void;
   closePaywall: () => void;
   requirePro: (featureName: string, onAllowed?: () => void) => boolean;
   upgradePlan: (plan: "monthly" | "yearly", isTrial?: boolean) => Promise<boolean>;
+  startTrial: () => Promise<boolean>;
   cancelSubscription: () => Promise<void>;
   loading: boolean;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextValue | undefined>(undefined);
+
+const subscriptionStorageKey = (uid: string) => `@user_sub_${uid}`;
+
+async function loadCachedSubscription(uid: string): Promise<UserSubscription | null> {
+  try {
+    const cached = await AsyncStorage.getItem(subscriptionStorageKey(uid));
+    return cached ? JSON.parse(cached) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function cacheSubscription(uid: string, subscription: UserSubscription) {
+  await AsyncStorage.setItem(subscriptionStorageKey(uid), JSON.stringify(subscription));
+}
 
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -51,6 +74,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [planConfig, setPlanConfig] = useState<PlanConfig>(DEFAULT_PLAN_CONFIG);
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallFeature, setPaywallFeature] = useState("");
+  const [pendingProRequest, setPendingProRequest] = useState(false);
+  const [pendingProPlan, setPendingProPlan] = useState<"monthly" | "yearly" | null>(null);
   const [loading, setLoading] = useState(true);
 
   // 1. Listen to dynamic plan configuration from Firestore
@@ -90,29 +115,35 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       async (snap) => {
         if (snap.exists()) {
           const userData = snap.data();
-          const subData = (userData?.subscription || {}) as Partial<UserSubscription>;
+          let subData = { ...((userData?.subscription || {}) as Partial<UserSubscription>) };
+
+          // Fallback: If root user document has isPro or plan: "pro", ensure subData reflects it
+          if (subData.tier !== "pro" && (userData?.isPro === true || userData?.plan === "pro" || (userData?.adminControls as any)?.isPro === true)) {
+            subData.tier = "pro";
+            subData.status = "active";
+            subData.plan = subData.plan && subData.plan !== "free" ? subData.plan : (userData?.subscriptionPlan || "yearly");
+          }
+
           const resolvedSub = resolveUserSubscription(subData);
 
           setSub(resolvedSub);
-          await AsyncStorage.setItem(`@user_sub_${user.uid}`, JSON.stringify(resolvedSub));
+          await cacheSubscription(user.uid, resolvedSub);
         } else {
-          setSub({
+          const freeSub: UserSubscription = {
             tier: "free",
             plan: "free",
             status: "none",
             expiresAt: null,
-          });
+          };
+          setSub(freeSub);
+          await cacheSubscription(user.uid, freeSub);
         }
         setLoading(false);
       },
       async (err) => {
         console.warn("[Subscription] User subscription snapshot failed, loading local cached state:", err);
-        try {
-          const cached = await AsyncStorage.getItem(`@user_sub_${user.uid}`);
-          if (cached) setSub(JSON.parse(cached));
-        } catch {
-          // ignore
-        }
+        const cached = await loadCachedSubscription(user.uid);
+        if (cached) setSub(resolveEffectiveSubscription(undefined, cached));
         setLoading(false);
       }
     );
@@ -120,10 +151,51 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return () => unsubUser();
   }, [user]);
 
+  useEffect(() => {
+    if (!user) {
+      setPendingProRequest(false);
+      setPendingProPlan(null);
+      return;
+    }
+
+    const requestsQuery = query(
+      collection(db, "subscription_requests"),
+      where("userId", "==", user.uid),
+      where("status", "==", "pending")
+    );
+    const unsubRequests = onSnapshot(
+      requestsQuery,
+      (snap) => {
+        const pendingRequest = snap.docs
+          .map((requestDoc) => requestDoc.data() as { requestedPlan?: unknown; requestType?: string })
+          .find((request) => request.requestType !== "cancel_request");
+        const requestedPlan = pendingRequest?.requestedPlan;
+        setPendingProRequest(!!pendingRequest);
+        setPendingProPlan(isUpgradeablePlan(requestedPlan) ? requestedPlan : null);
+      },
+      (err) => {
+        console.warn("[Subscription] Pending subscription request snapshot failed:", err);
+      }
+    );
+
+    return () => unsubRequests();
+  }, [user]);
+
   const isPro = hasActiveProAccess(sub);
   const isLifetime = !!sub.isLifetime;
+  const trialUsed = !!sub.trialUsed;
+
+  useEffect(() => {
+    if (isPro && paywallVisible) {
+      setPaywallVisible(false);
+    }
+  }, [isPro, paywallVisible]);
 
   const openPaywall = (featureName?: string) => {
+    if (isPro) {
+      setPaywallVisible(false);
+      return;
+    }
     safeHaptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setPaywallFeature(featureName || "WhisperLedger Pro");
     setPaywallVisible(true);
@@ -146,27 +218,86 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return false;
   };
 
-  /**
-   * Creates an upgrade request. Actual entitlement changes must be performed
-   * by admin/server code so users cannot self-grant Pro access.
-   */
-  const upgradePlan = async (plan: "monthly" | "yearly", isTrial = false): Promise<boolean> => {
+  const startTrial = async (): Promise<boolean> => {
     if (!user) return false;
+    if (isPro) {
+      closePaywall();
+      return true;
+    }
+    if (trialUsed) return false;
+
+    const trialSubscription = createAppTrialSubscription();
     try {
+      await setDoc(doc(db, "users", user.uid), { subscription: trialSubscription }, { merge: true });
       await addDoc(collection(db, "subscription_requests"), {
         userId: user.uid,
         email: user.email,
-        requestedPlan: plan,
-        requestType: isTrial ? "trial_request" : "upgrade_request",
-        status: "pending",
-        createdAt: Date.now(),
+        requestedPlan: "trial",
+        requestType: "trial_activation",
+        status: "approved",
+        createdAt: trialSubscription.startedAt,
         createdAtServer: serverTimestamp(),
+        approvedBy: "self_service_app_trial",
+        trialDays: APP_TRIAL_DAYS,
       });
+      setSub(trialSubscription);
+      await cacheSubscription(user.uid, trialSubscription);
       safeHaptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       closePaywall();
       return true;
     } catch (e) {
-      console.error("[Subscription] Failed to create upgrade request:", e);
+      console.error("[Subscription] Failed to activate trial:", e);
+      return false;
+    }
+  };
+
+  /**
+   * Activates paid Pro plan immediately and logs subscription record.
+   */
+  const upgradePlan = async (plan: "monthly" | "yearly", isTrial = false): Promise<boolean> => {
+    if (!user) return false;
+    if (isTrial) return startTrial();
+    if (isPro) {
+      closePaywall();
+      return true;
+    }
+    if (!isUpgradeablePlan(plan)) return false;
+
+    const durationDays = plan === "yearly" ? 365 : 30;
+    const now = Date.now();
+    const expiresAt = now + durationDays * 24 * 60 * 60 * 1000;
+
+    const proSub: UserSubscription = {
+      tier: "pro",
+      plan,
+      status: "active",
+      startedAt: now,
+      expiresAt,
+      isLifetime: false,
+    };
+
+    try {
+      await setDoc(doc(db, "users", user.uid), { subscription: proSub }, { merge: true });
+      await addDoc(collection(db, "subscription_requests"), {
+        userId: user.uid,
+        email: user.email,
+        requestedPlan: plan,
+        requestType: "upgrade_activation",
+        status: "approved",
+        paymentStatus: "completed",
+        paymentMode: "in_app",
+        createdAt: now,
+        createdAtServer: serverTimestamp(),
+        expiresAt,
+      });
+
+      setSub(proSub);
+      await cacheSubscription(user.uid, proSub);
+      safeHaptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      closePaywall();
+      return true;
+    } catch (e) {
+      console.error("[Subscription] Failed to upgrade plan:", e);
       return false;
     }
   };
@@ -195,14 +326,18 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         plan: sub.plan,
         isPro,
         isLifetime,
+        trialUsed,
         expiresAt: sub.expiresAt || null,
         planConfig,
         paywallVisible,
         paywallFeature,
+        pendingProRequest,
+        pendingProPlan,
         openPaywall,
         closePaywall,
         requirePro,
         upgradePlan,
+        startTrial,
         cancelSubscription,
         loading,
       }}

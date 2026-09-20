@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 
+import { useAuth } from "@/context/AuthContext";
 import { CATEGORIES, Expense, useExpenses } from "@/context/ExpenseContext";
 import { useColors } from "@/hooks/useColors";
 import MerchantLogo from "@/components/MerchantLogo";
@@ -23,14 +24,17 @@ interface Props {
 
 export default function ExpenseItem({ expense, onEdit }: Props) {
   const colors = useColors();
+  const { user } = useAuth();
   const { deleteExpense } = useExpenses();
   const cat = CATEGORIES.find((c) => c.id === expense.categoryId) || CATEGORIES.find((c) => c.id === "other")!;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const isDark = isDarkPalette(colors);
+  const isHouseholdShare = !!expense.isHouseholdSplitShare;
+  const isCreator = !expense.householdCreatedBy || expense.householdCreatedBy === user?.uid;
 
   const handlePressIn = () => {
     Animated.spring(scaleAnim, {
-      toValue: 0.97,
+      toValue: 0.98,
       useNativeDriver: true,
       speed: 50,
     }).start();
@@ -45,6 +49,14 @@ export default function ExpenseItem({ expense, onEdit }: Props) {
   };
 
   const handleDelete = () => {
+    if (isHouseholdShare && !isCreator) {
+      Alert.alert(
+        "Household Split",
+        "This is a shared household split. It can be modified or removed in Household Space."
+      );
+      return;
+    }
+
     safeHaptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Alert.alert("Delete Expense", "Remove this expense permanently?", [
       { text: "Cancel", style: "cancel" },
@@ -57,129 +69,6 @@ export default function ExpenseItem({ expense, onEdit }: Props) {
         },
       },
     ]);
-  };
-
-  const styles = StyleSheet.create({
-    container: {
-      flexDirection: "row",
-      alignItems: "center",
-      padding: 14,
-      marginBottom: 8,
-      gap: 12,
-      ...surfaceStyle(colors, false),
-    },
-    iconWrap: {
-      width: 46,
-      height: 46,
-      borderRadius: 14,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: isDark ? `${cat.color}22` : `${cat.color}15`,
-    },
-    info: {
-      flex: 1,
-    },
-    catLabel: {
-      fontSize: 14,
-      fontWeight: "600" as const,
-      fontFamily: "Inter_600SemiBold",
-      color: colors.foreground,
-    },
-    note: {
-      fontSize: 12,
-      color: colors.mutedForeground,
-      fontFamily: "Inter_400Regular",
-      marginTop: 2,
-    },
-    right: {
-      alignItems: "flex-end",
-      gap: 6,
-    },
-    amount: {
-      fontSize: 16,
-      fontWeight: "700" as const,
-      fontFamily: "Inter_700Bold",
-      color: colors.foreground,
-    },
-    actions: {
-      flexDirection: "row",
-      gap: 6,
-    },
-    editBtn: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 4,
-      backgroundColor: isDark ? "rgba(56, 130, 255, 0.12)" : "#F0F7FF",
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      borderRadius: 8,
-    },
-    editBtnText: {
-      fontSize: 11,
-      fontFamily: "Inter_600SemiBold",
-      fontWeight: "600" as const,
-      color: colors.primary,
-    },
-    deleteBtn: {
-      width: 28,
-      height: 28,
-      borderRadius: 8,
-      backgroundColor: isDark ? "rgba(239, 68, 68, 0.15)" : "#fef2f2",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-  });
-
-  const renderPaymentModeBadge = () => {
-    if (!expense.paymentMode || expense.paymentMode === "none") return null;
-
-    let icon: any = "credit-card";
-    let bg = isDark ? "rgba(56, 130, 255, 0.15)" : "rgba(0, 102, 255, 0.08)";
-    let fg = colors.primary;
-    let label = expense.paymentMode.toUpperCase();
-
-    if (expense.paymentMode === "upi") {
-      icon = "zap";
-      bg = isDark ? "rgba(14, 165, 233, 0.15)" : "rgba(14, 165, 233, 0.12)";
-      fg = isDark ? "#38BDF8" : "#0369A1";
-      label = "UPI";
-    } else if (expense.paymentMode === "card") {
-      icon = "credit-card";
-      bg = isDark ? "rgba(249, 115, 22, 0.15)" : "rgba(249, 115, 22, 0.12)";
-      fg = isDark ? "#FB923C" : "#C2410C";
-      label = "CARD";
-    } else if (expense.paymentMode === "cash") {
-      icon = "dollar-sign";
-      bg = isDark ? "rgba(16, 185, 129, 0.15)" : "rgba(16, 185, 129, 0.12)";
-      fg = isDark ? "#34D399" : "#047857";
-      label = "CASH";
-    } else if (expense.paymentMode === "netbanking") {
-      icon = "briefcase";
-      bg = isDark ? "rgba(56, 130, 255, 0.15)" : "rgba(0, 102, 255, 0.10)";
-      fg = isDark ? "#93C5FD" : "#0066FF";
-      label = "BANK";
-    }
-
-    return (
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          backgroundColor: bg,
-          paddingHorizontal: 8,
-          paddingVertical: 3,
-          borderRadius: 6,
-          gap: 4,
-          borderWidth: 0.5,
-          borderColor: `${fg}30`,
-        }}
-      >
-        <Feather name={icon} size={9} color={fg} />
-        <Text style={{ fontSize: 9, fontFamily: "Inter_700Bold", color: fg, letterSpacing: 0.5 }}>
-          {label}
-        </Text>
-      </View>
-    );
   };
 
   const getResolvedMerchantName = (): string => {
@@ -198,53 +87,189 @@ export default function ExpenseItem({ expense, onEdit }: Props) {
         return b;
       }
     }
-    return expense.note || "";
+    return "";
   };
 
   const merchantName = getResolvedMerchantName();
+  const displayTitle = expense.note || merchantName || cat.label;
+  const paymentMode = (expense.paymentMode && expense.paymentMode !== "none") ? expense.paymentMode.toUpperCase() : null;
 
   return (
-    <Animated.View style={[styles.container, { transform: [{ scale: scaleAnim }] }]}>
-      {merchantName ? (
-        <MerchantLogo merchant={merchantName} size={46} borderRadius={14} />
-      ) : (
-        <View style={styles.iconWrap}>
-          <Feather name={cat.icon as any} size={22} color={cat.color} />
-        </View>
-      )}
-
-      <View style={styles.info}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-          <Text style={styles.catLabel}>{cat.label}</Text>
-          {renderPaymentModeBadge()}
-        </View>
-        {!!expense.note && <Text style={styles.note}>{expense.note}</Text>}
-      </View>
-
-      <View style={styles.right}>
-        <Text style={styles.amount}>₹{Number(expense.amount || 0).toLocaleString("en-IN")}</Text>
-        <View style={styles.actions}>
-          {onEdit && (
-            <TouchableOpacity
-              style={styles.editBtn}
-              onPress={() => { safeHaptics.selectionAsync(); onEdit(expense); }}
-              onPressIn={handlePressIn}
-              onPressOut={handlePressOut}
-              activeOpacity={0.8}
+    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+      <View
+        style={[styles.container, surfaceStyle(colors, false)]}
+        onTouchStart={handlePressIn}
+        onTouchEnd={handlePressOut}
+        onTouchCancel={handlePressOut}
+      >
+        {/* Category Icon / Merchant Logo */}
+        <View style={styles.iconContainer}>
+          {merchantName ? (
+            <MerchantLogo merchant={merchantName} size={40} borderRadius={12} />
+          ) : (
+            <View
+              style={[
+                styles.iconWrap,
+                { backgroundColor: isDark ? `${cat.color}22` : `${cat.color}15` },
+              ]}
             >
-              <Feather name="edit-2" size={11} color={colors.primary} />
-              <Text style={styles.editBtnText}>Edit</Text>
-            </TouchableOpacity>
+              <Feather name={cat.icon as any} size={18} color={cat.color} />
+            </View>
           )}
-          <TouchableOpacity
-            style={styles.deleteBtn}
-            onPress={handleDelete}
-            activeOpacity={0.75}
-          >
-            <Feather name="trash-2" size={13} color={colors.text === "#f8fafc" ? "#f87171" : "#ef4444"} />
-          </TouchableOpacity>
+
+          {paymentMode && (
+            <View
+              style={[
+                styles.miniPaymentPill,
+                {
+                  backgroundColor: paymentMode === "UPI" ? "#0EA5E9" : paymentMode === "CARD" ? "#F97316" : paymentMode === "CASH" ? "#10B981" : colors.primary,
+                },
+              ]}
+            >
+              <Text style={styles.miniPaymentText}>{paymentMode}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Info Column */}
+        <View style={styles.infoCol}>
+          <Text style={[styles.titleText, { color: colors.foreground }]} numberOfLines={1}>
+            {displayTitle}
+          </Text>
+          <View style={styles.subtitleRow}>
+            <Text style={[styles.subText, { color: colors.mutedForeground }]} numberOfLines={1}>
+              {cat.label}
+              {expense.location ? ` · 📍 ${expense.location}` : ""}
+              {expense.date ? ` · ${expense.date}` : ""}
+            </Text>
+            {isHouseholdShare && (
+              <View
+                style={[
+                  styles.splitBadge,
+                  { backgroundColor: isDark ? "rgba(56, 130, 255, 0.15)" : "#EFF6FF" },
+                ]}
+              >
+                <Feather name="home" size={9} color={colors.primary} />
+                <Text style={[styles.splitBadgeText, { color: colors.primary }]}>Split</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Right Amount & Actions Column */}
+        <View style={styles.rightCol}>
+          <Text style={[styles.amountText, { color: colors.foreground }]}>
+            ₹{Number(expense.amount || 0).toLocaleString("en-IN")}
+          </Text>
+
+          <View style={styles.actionsRow}>
+            {onEdit && (
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => {
+                  safeHaptics.selectionAsync();
+                  onEdit(expense);
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.7}
+              >
+                <Feather name="edit-2" size={12} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={handleDelete}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+            >
+              <Feather name="trash-2" size={12} color="#EF4444" />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Animated.View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 16,
+    marginBottom: 8,
+    gap: 12,
+  },
+  iconContainer: {
+    position: "relative",
+  },
+  iconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  miniPaymentPill: {
+    position: "absolute",
+    bottom: -3,
+    right: -3,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: "#FFFFFF",
+  },
+  miniPaymentText: {
+    color: "#FFFFFF",
+    fontSize: 7,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.2,
+  },
+  infoCol: {
+    flex: 1,
+    gap: 3,
+  },
+  titleText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+  },
+  subtitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  subText: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+  },
+  splitBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  splitBadgeText: {
+    fontSize: 9,
+    fontFamily: "Inter_600SemiBold",
+  },
+  rightCol: {
+    alignItems: "flex-end",
+    gap: 4,
+  },
+  amountText: {
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+  },
+  actionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  actionBtn: {
+    padding: 2,
+  },
+});

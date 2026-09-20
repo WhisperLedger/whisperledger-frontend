@@ -11,6 +11,7 @@ import React, {
 import { db } from "@/lib/firebase";
 import { useAuth } from "./AuthContext";
 import { CategoryId, CATEGORIES, useExpenses } from "./ExpenseContext";
+import { useHousehold } from "./HouseholdContext";
 import { sendBudgetAlert } from "@/utils/notifications";
 
 export interface Budget {
@@ -40,11 +41,12 @@ interface BudgetContextType {
 const BudgetContext = createContext<BudgetContextType | null>(null);
 
 const BUDGETS_CACHE_KEY = (uid: string) => `@budgets_${uid}`;
-const ALERTED_KEY = (uid: string, month: string) => `@budget_alerted_${uid}_${month}`;
+const ALERTED_KEY = (uid: string, month: string, space: string) => `@budget_alerted_${uid}_${space}_${month}`;
 
 export function BudgetProvider({ children }: { children: React.ReactNode }) {
   const { user, isAuthReady } = useAuth();
   const { getCategoryTotalsForMonth } = useExpenses();
+  const { activeSpace, currentHousehold, householdExpenses } = useHousehold();
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -165,12 +167,29 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
   );
 
   // Compute budget statuses for current month
+  // Compute category totals: In household space, use WHOLE VALUE of shared expenses. In personal space, use personal totals.
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const categoryTotals = getCategoryTotalsForMonth(
+
+  const personalCategoryTotals = getCategoryTotalsForMonth(
     now.getFullYear(),
     now.getMonth() + 1
   );
+
+  const householdCategoryTotals = React.useMemo(() => {
+    const result = {} as Record<CategoryId, number>;
+    CATEGORIES.forEach((c) => { result[c.id] = 0; });
+    (householdExpenses || []).forEach((e) => {
+      if (e?.date && e.date.startsWith(currentMonth) && !e.isSettlement) {
+        const catId = CATEGORIES.some((c) => c.id === e.categoryId) ? e.categoryId : "other";
+        // Calculate on whole value of expense
+        result[catId] = (result[catId] || 0) + Number(e.amount || 0);
+      }
+    });
+    return result;
+  }, [householdExpenses, currentMonth]);
+
+  const categoryTotals = activeSpace === "household" ? householdCategoryTotals : personalCategoryTotals;
 
   const budgetStatuses: BudgetStatus[] = budgets
     .filter((b) => b.month === currentMonth)
@@ -178,11 +197,17 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       const spent = categoryTotals[b.categoryId] || 0;
       const remaining = Math.max(0, b.monthlyLimit - spent);
       const percentage = b.monthlyLimit > 0 ? (spent / b.monthlyLimit) * 100 : 0;
+      const isExceeded = b.monthlyLimit > 0 && spent > b.monthlyLimit;
+      const isReached = b.monthlyLimit > 0 && spent === b.monthlyLimit;
       const status =
-        percentage >= 100
+        b.monthlyLimit <= 0
+          ? "safe"
+          : isExceeded
           ? "exceeded"
-          : percentage >= 80
+          : isReached || percentage >= 100
           ? "critical"
+          : percentage >= 80
+          ? "warning"
           : percentage >= 50
           ? "warning"
           : "safe";
@@ -191,16 +216,19 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
 
   const [isAlertedLoaded, setIsAlertedLoaded] = useState(false);
   const alertedInMemory = React.useRef<Record<string, number[]>>({});
+  const isInitialLaunchRef = React.useRef(true);
 
   // Sync in-memory alerted state with AsyncStorage on startup or user change
   useEffect(() => {
     if (!user) {
       alertedInMemory.current = {};
       setIsAlertedLoaded(false);
+      isInitialLaunchRef.current = true;
       return;
     }
     setIsAlertedLoaded(false);
-    AsyncStorage.getItem(ALERTED_KEY(user.uid, currentMonth))
+    isInitialLaunchRef.current = true;
+    AsyncStorage.getItem(ALERTED_KEY(user.uid, currentMonth, activeSpace))
       .then((raw) => {
         if (raw) {
           alertedInMemory.current = JSON.parse(raw);
@@ -213,24 +241,45 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         alertedInMemory.current = {};
         setIsAlertedLoaded(true);
       });
-  }, [user?.uid, currentMonth]);
+  }, [user?.uid, currentMonth, activeSpace]);
 
-  // Check and fire push alerts at threshold milestones (50%, 80%, 100%)
+  // Check and fire push alerts at threshold milestones (50%, 80%, 100%, >100%)
   const checkAndAlertBudgets = useCallback(async () => {
     if (!user) return;
-    const alertedKey = ALERTED_KEY(user.uid, currentMonth);
+    const alertedKey = ALERTED_KEY(user.uid, currentMonth, activeSpace);
     
     // Copy the in-memory state to avoid async race conditions
     const alerted = { ...alertedInMemory.current };
     let hasChanges = false;
 
+    // Suppress notifications on cold app launch:
+    // Pre-populate already-crossed thresholds so opening the app doesn't fire alerts
+    if (isInitialLaunchRef.current) {
+      isInitialLaunchRef.current = false;
+      for (const status of budgetStatuses) {
+        const prev = alerted[status.categoryId] || [];
+        const thresholds = [50, 80, 100, 101];
+        const crossed = thresholds.filter((t) => (t === 101 ? status.percentage > 100 : status.percentage >= t));
+        const merged = Array.from(new Set([...prev, ...crossed]));
+        if (merged.length !== prev.length) {
+          alerted[status.categoryId] = merged;
+          hasChanges = true;
+        }
+      }
+      if (hasChanges) {
+        alertedInMemory.current = alerted;
+        await AsyncStorage.setItem(alertedKey, JSON.stringify(alerted)).catch(() => null);
+      }
+      return;
+    }
+
     for (const status of budgetStatuses) {
       const prev = alerted[status.categoryId] || [];
-      const thresholds = [50, 80, 100];
+      const thresholds = [50, 80, 100, 101];
 
       // A. Re-arm thresholds: if percentage drops below a previously triggered threshold, remove it
       const originalLength = prev.length;
-      const updatedPrev = prev.filter((t) => status.percentage >= t);
+      const updatedPrev = prev.filter((t) => (t === 101 ? status.percentage > 100 : status.percentage >= t));
       if (updatedPrev.length !== originalLength) {
         alerted[status.categoryId] = updatedPrev;
         hasChanges = true;
@@ -238,18 +287,21 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
 
       // B. Identify all new thresholds that are crossed but not yet alerted
       const crossedNewThresholds = thresholds.filter(
-        (t) => status.percentage >= t && !updatedPrev.includes(t)
+        (t) => (t === 101 ? status.percentage > 100 : status.percentage >= t) && !updatedPrev.includes(t)
       );
 
       if (crossedNewThresholds.length > 0) {
         // Only trigger one notification for the HIGHEST crossed milestone (avoid multiple alerts)
         const highestNewThreshold = Math.max(...crossedNewThresholds);
         const cat = CATEGORIES.find((c) => c.id === status.categoryId);
+        const householdName = activeSpace === "household" ? (currentHousehold?.name || "Household") : undefined;
+
         await sendBudgetAlert(
           cat?.label || status.categoryId,
-          highestNewThreshold,
+          highestNewThreshold === 101 ? status.percentage : highestNewThreshold,
           status.remaining,
-          status.monthlyLimit
+          status.monthlyLimit,
+          householdName
         );
 
         // Mark all crossed thresholds as alerted so we don't alert them again
@@ -271,14 +323,14 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
         // ignore
       }
     }
-  }, [user, budgetStatuses, currentMonth]);
+  }, [user, budgetStatuses, currentMonth, activeSpace, currentHousehold?.name]);
 
   // Auto-check on budget status changes
   useEffect(() => {
     if (user && isAlertedLoaded && budgetStatuses.length > 0) {
       checkAndAlertBudgets();
     }
-  }, [isAlertedLoaded, JSON.stringify(budgetStatuses.map((s) => `${s.categoryId}:${s.percentage.toFixed(0)}`))]);
+  }, [isAlertedLoaded, JSON.stringify(budgetStatuses.map((s) => `${s.categoryId}:${s.percentage.toFixed(0)}`)), activeSpace]);
 
   return (
     <BudgetContext.Provider

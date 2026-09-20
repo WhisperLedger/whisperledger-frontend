@@ -22,6 +22,8 @@ import {
 } from "expo-speech-recognition";
 
 import { CATEGORIES, CategoryId, useExpenses, PaymentMode } from "@/context/ExpenseContext";
+import { useHousehold } from "@/context/HouseholdContext";
+import { calculateEqualSplits } from "@/utils/splitMath";
 import { useReceivables } from "@/context/ReceivablesContext";
 import { useAuth } from "@/context/AuthContext";
 import { useSubscription } from "@/context/SubscriptionContext";
@@ -32,6 +34,7 @@ import { db } from "@/lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import {
   buildExpenseInsightAnswer,
+  buildHouseholdAndDuesInsightAnswer,
   getJailbreakResponse,
   isJailbreakOrPromptInjection,
   MAX_CHAT_INPUT_LENGTH,
@@ -114,6 +117,7 @@ const CATEGORY_KEYWORDS: Record<CategoryId, string[]> = {
   travel: ["travel","taxi","cab","uber","ola","flight","train","bus","ticket","fuel","petrol","diesel","auto","metro"],
   groceries: ["grocery","groceries","supermarket","milk","egg","veg","vegetable","fruit","reliance","blinkit","zepto","instamart","bazaar","mart"],
   rent: ["rent","lease","landlord","flat","room","pg"],
+  maid_cook: ["maid","cook","househelp","house help","bai","cleaning","chef","kamwali","cook salary","maid salary"],
   food_outside: ["food","restaurant","swiggy","zomato","cafe","coffee","starbucks","tea","lunch","dinner","breakfast","pizza","burger","biryani","dhaba"],
   transfer: ["transfer","send","sent","wire","gpay","phonepe","paytm"],
   utilities: ["utility","utilities","electricity","water","gas","internet","wifi","broadband","power"],
@@ -389,6 +393,14 @@ export default function ChatbotScreen() {
   const { user } = useAuth();
   const { addExpense, addMultipleExpenses, getCategoryTotalsForMonth, getTotalForMonth, expenses } = useExpenses();
   const { getPendingReceivables, getTotalPendingAmount } = useReceivables();
+  const {
+    currentHousehold,
+    balances,
+    pairwiseDebts,
+    userNetBalance,
+    addHouseholdExpense,
+    settleUp,
+  } = useHousehold();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
@@ -649,13 +661,39 @@ export default function ChatbotScreen() {
 
     // Money Recovery intent
     if (
-      lower.includes("owes me") || lower.includes("where is my money") || lower.includes("pending refund") ||
+      lower.includes("where is my money") || lower.includes("pending refund") ||
       lower.includes("refund") || lower.includes("stuck money") || lower.includes("deposit") ||
-      lower.includes("reversal") || lower.includes("who owes me") || lower.includes("recovery agent") ||
+      lower.includes("reversal") || lower.includes("recovery agent") ||
       lower.includes("return money") || lower.includes("swiggy") || lower.includes("zepto") ||
       lower.includes("zomato") || lower.includes("blinkit") || lower.includes("amazon") ||
       lower.includes("flight") || lower.includes("claim") || lower.includes("overdue")
     ) intents.push("money_recovery");
+
+    // Household Split
+    if (
+      lower.includes("split") ||
+      (lower.includes("flat") && (lower.includes("bill") || lower.includes("spend") || lower.includes("grocery") || lower.includes("maid") || lower.includes("cook") || lower.includes("wifi")))
+    ) intents.push("household_split");
+
+    // Household Settle
+    if (
+      lower.includes("settle") ||
+      lower.includes("clear dues") ||
+      lower.includes("paid flatmate") ||
+      lower.includes("received from")
+    ) intents.push("household_settle");
+
+    // Household Dues Query
+    if (
+      lower.includes("flat status") ||
+      lower.includes("haveli status") ||
+      lower.includes("household balance") ||
+      lower.includes("who owes") ||
+      lower.includes("who all owe") ||
+      lower.includes("do i owe") ||
+      lower.includes("flat dues") ||
+      lower.includes("flat balance")
+    ) intents.push("household_dues_query");
 
     // Help / cheatsheet — only if no other intents
     if (!intents.length && (lower.includes("help") || lower === "/help" || lower.includes("what can you do") || lower.includes("commands")))
@@ -993,6 +1031,91 @@ export default function ChatbotScreen() {
           break;
         }
 
+        case "household_split": {
+          if (!currentHousehold) {
+            addMessage("bot", `You haven't joined a household yet, ${firstName}! 🏠\n\nCreate your flat or join using an invite code under **Profile ➔ Household & Flatmates**.`);
+            break;
+          }
+          const parsed = parseTransactionLine(text);
+          if (parsed && parsed.amount > 0) {
+            const membersList = Object.values(currentHousehold.members || {});
+            if (membersList.length === 0) {
+              addMessage("bot", `Your flat doesn't have any other members yet! Share your invite code: **${currentHousehold.inviteCode}**`);
+              break;
+            }
+            const splits = calculateEqualSplits(parsed.amount, membersList);
+            try {
+              await addHouseholdExpense({
+                amount: parsed.amount,
+                categoryId: parsed.categoryId,
+                paymentMode: parsed.paymentMode || "upi",
+                note: parsed.note || "Shared flat expense",
+                date: parsed.date,
+                payerUid: user?.uid || "",
+                payerName: user?.name || "You",
+                splitType: "equal",
+                splits,
+              });
+              safeHaptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              addMessage("bot", `🎉 Done, ${firstName}! Logged **₹${parsed.amount.toLocaleString("en-IN")}** for **${parsed.note || "Shared Spend"}** split equally in **${currentHousehold.name}**! 🏠\n\nAll members have received split notifications.`);
+            } catch (err: any) {
+              addMessage("bot", `Couldn't save household split: ${err.message || "Error"}`);
+            }
+          } else {
+            addMessage("bot", `To split a bill with your flatmates, just tell me:\n• *"Split 1200 groceries"*\n• *"Split 3000 maid with flatmates"*`);
+          }
+          break;
+        }
+
+        case "household_dues_query": {
+          if (!currentHousehold) {
+            addMessage("bot", `You don't have an active household yet, ${firstName}! You can create or join one from Profile.`);
+            break;
+          }
+          const myUid = user?.uid || "";
+          const debtsOwedToMe = pairwiseDebts.filter(d => d.toUid === myUid).map(d => ({ fromName: d.fromName, amount: d.amount }));
+          const debtsIOwe = pairwiseDebts.filter(d => d.fromUid === myUid).map(d => ({ toName: d.toName, amount: d.amount }));
+          const insight = buildHouseholdAndDuesInsightAnswer(
+            currentHousehold.name,
+            debtsOwedToMe,
+            debtsIOwe,
+            userNetBalance
+          );
+          addMessage("bot", insight);
+          break;
+        }
+
+        case "household_settle": {
+          if (!currentHousehold) {
+            addMessage("bot", `You need to be in a household to settle flat dues, ${firstName}!`);
+            break;
+          }
+          const amtMatch = text.match(/(?:₹|rs\.?\s*|inr\s*)?(\d+(?:\.\d{1,2})?)/i);
+          const amt = amtMatch ? parseFloat(amtMatch[1]) : 0;
+          const members = Object.values(currentHousehold.members || {});
+          const matchedMember = members.find(m => m.uid !== user?.uid && text.toLowerCase().includes(m.name.toLowerCase()));
+          
+          if (matchedMember && amt > 0) {
+            try {
+              await settleUp(matchedMember.uid, amt, `Settlement via WhisperBot`);
+              safeHaptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              addMessage("bot", `✅ All settled, ${firstName}! Recorded payment of **₹${amt.toFixed(2)}** with **${matchedMember.name}** in ${currentHousehold.name}. Flat balance has been updated! 🤝`);
+            } catch (err: any) {
+              addMessage("bot", `Could not record settlement: ${err.message}`);
+            }
+          } else {
+            const myUid = user?.uid || "";
+            const myDebts = pairwiseDebts.filter(d => d.fromUid === myUid || d.toUid === myUid);
+            if (myDebts.length === 0) {
+              addMessage("bot", `All flat dues are already completely settled in **${currentHousehold.name}**! 🎉`);
+            } else {
+              const summary = myDebts.map(d => d.fromUid === myUid ? `• You owe ${d.toName} ₹${d.amount.toFixed(2)}` : `• ${d.fromName} owes you ₹${d.amount.toFixed(2)}`).join("\n");
+              addMessage("bot", `Here are your pending dues in **${currentHousehold.name}**:\n\n${summary}\n\nTo settle, just say: *"settle [amount] with [name]"*!`);
+            }
+          }
+          break;
+        }
+
         case "help": {
           addMessage("bot", `Sure ${firstName}! Here's everything I can do for you 💡`, {
             type: "help_guide",
@@ -1296,13 +1419,13 @@ export default function ChatbotScreen() {
     inputArea: {
       backgroundColor: colors.card,
       borderTopWidth: 1, borderTopColor: colors.border,
-      paddingHorizontal: 16, paddingTop: 10,
-      paddingBottom: insets.bottom > 0 ? insets.bottom : 10,
-      flexDirection: "row", alignItems: "center", gap: 12,
+      paddingHorizontal: 14, paddingTop: 8,
+      paddingBottom: Platform.OS === "ios" ? (insets.bottom > 0 ? insets.bottom : 10) : 10,
+      flexDirection: "row", alignItems: "flex-end", gap: 8,
     },
     inputWrap: {
-      flex: 1, minHeight: 48, maxHeight: 120, backgroundColor: colors.muted,
-      borderRadius: 16, paddingHorizontal: 18, paddingVertical: Platform.OS === "ios" ? 8 : 4,
+      flex: 1, minHeight: 46, maxHeight: 120, backgroundColor: colors.muted,
+      borderRadius: 20, paddingHorizontal: 16, paddingVertical: Platform.OS === "ios" ? 8 : 4,
       flexDirection: "row", alignItems: "center",
       borderWidth: 1,
       borderColor: colors.border,
@@ -1325,9 +1448,9 @@ export default function ChatbotScreen() {
       fontFamily: "Inter_500Medium",
     },
     micBtn: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
+      width: 46,
+      height: 46,
+      borderRadius: 23,
       alignItems: "center",
       justifyContent: "center",
       borderWidth: 1,
@@ -1335,7 +1458,7 @@ export default function ChatbotScreen() {
       backgroundColor: colors.muted,
     },
     sendBtn: {
-      width: 48, height: 48, borderRadius: 24,
+      width: 46, height: 46, borderRadius: 23,
       backgroundColor: colors.primary, alignItems: "center", justifyContent: "center",
       shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.3, shadowRadius: 6, elevation: 4,
@@ -1366,6 +1489,8 @@ export default function ChatbotScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={[styles.listContent]}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           renderItem={({ item }) => {
             const isUser = item.sender === "user";
@@ -1475,12 +1600,7 @@ export default function ChatbotScreen() {
         )}
 
         {/* Input Bar */}
-        <View style={[
-          styles.inputArea,
-          Platform.OS === "android" && keyboardHeight > 0
-            ? { marginBottom: keyboardHeight - tabBarHeight }
-            : undefined,
-        ]}>
+        <View style={styles.inputArea}>
           <TouchableOpacity
             style={[
               styles.micBtn,

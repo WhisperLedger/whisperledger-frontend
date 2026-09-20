@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import { router, useLocalSearchParams } from "expo-router";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -30,9 +30,12 @@ import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { db } from "@/lib/firebase";
 import {
+  dismissAndClearNotification,
+  markSMSApprovalProcessed,
   requestNotificationPermissions,
   scheduleDailyExpenseReminder,
 } from "@/utils/notifications";
+import { classifyCategory } from "@/utils/smsParser";
 
 interface NotificationItem {
   id: string;
@@ -84,6 +87,14 @@ export default function NotificationsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, isLoading } = useAuth();
+  const params = useLocalSearchParams<{
+    smsApproval?: string;
+    smsId?: string;
+    amount?: string;
+    merchant?: string;
+    date?: string;
+    action?: string;
+  }>();
 
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [hour, setHour] = useState(20);
@@ -94,6 +105,79 @@ export default function NotificationsScreen() {
 
   const [hourInput, setHourInput] = useState("");
   const [minuteInput, setMinuteInput] = useState("");
+  const hasProcessedParamApproval = useRef(false);
+
+  // Handle incoming SMS approval deep-link from notification
+  useEffect(() => {
+    if (!user || params.smsApproval !== "true" || hasProcessedParamApproval.current) return;
+    hasProcessedParamApproval.current = true;
+
+    const numAmount = parseFloat(params.amount || "0");
+    const rawMerchant = params.merchant ? decodeURIComponent(params.merchant) : "Merchant";
+    const smsDate = params.date || new Date().toISOString().split("T")[0];
+    const rawSmsId = params.smsId || `sms_${Date.now()}`;
+
+    if (params.action === "approve") {
+      (async () => {
+        try {
+          const docId = `sms_${rawSmsId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+          await setDoc(doc(db, `users/${user.uid}/expenses`, docId), {
+            amount: numAmount,
+            note: `Auto-synced: ${rawMerchant}`,
+            categoryId: classifyCategory(rawMerchant),
+            paymentMode: "none",
+            date: smsDate,
+            smsId: rawSmsId,
+            merchant: rawMerchant,
+            createdAt: Date.now(),
+          });
+          await markSMSApprovalProcessed(rawSmsId);
+          await dismissAndClearNotification(rawSmsId, user.uid);
+          Alert.alert("Approved! 🎉", `Added ₹${numAmount} at ${rawMerchant} to your ledger.`);
+        } catch (err) {
+          console.error("Param approval failed:", err);
+        }
+      })();
+    } else {
+      Alert.alert(
+        "New Transaction Detected",
+        `Spent ₹${numAmount} at ${rawMerchant} on ${smsDate}. Would you like to add this to your ledger?`,
+        [
+          {
+            text: "Discard",
+            style: "destructive",
+            onPress: async () => {
+              await markSMSApprovalProcessed(rawSmsId);
+              await dismissAndClearNotification(rawSmsId, user.uid);
+            },
+          },
+          {
+            text: "Approve",
+            onPress: async () => {
+              try {
+                const docId = `sms_${rawSmsId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+                await setDoc(doc(db, `users/${user.uid}/expenses`, docId), {
+                  amount: numAmount,
+                  note: `Auto-synced: ${rawMerchant}`,
+                  categoryId: classifyCategory(rawMerchant),
+                  paymentMode: "none",
+                  date: smsDate,
+                  smsId: rawSmsId,
+                  merchant: rawMerchant,
+                  createdAt: Date.now(),
+                });
+                await markSMSApprovalProcessed(rawSmsId);
+                await dismissAndClearNotification(rawSmsId, user.uid);
+                Alert.alert("Success", `Added ₹${numAmount} to your ledger.`);
+              } catch (err) {
+                console.error("Approval failed:", err);
+              }
+            },
+          },
+        ]
+      );
+    }
+  }, [user, params]);
 
   // Sync text inputs when hour/minute changes (e.g. via dial)
   useEffect(() => {

@@ -1,8 +1,11 @@
 import { Feather } from "@expo/vector-icons";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 
 import { useReceivables } from "@/context/ReceivablesContext";
@@ -34,6 +38,7 @@ const QUICK_PRESETS = [
 ];
 
 export default function AddReceivableModal({ visible, onClose }: AddReceivableModalProps) {
+  const insets = useSafeAreaInsets();
   const colors = useColors();
   const { addReceivable } = useReceivables();
   const isDark = isDarkPalette(colors);
@@ -46,6 +51,23 @@ export default function AddReceivableModal({ visible, onClose }: AddReceivableMo
   const [notes, setNotes] = useState("");
   const [rawText, setRawText] = useState("");
   const [showSmartPaste, setShowSmartPaste] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => setKeyboardHeight(e.endCoordinates.height)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKeyboardHeight(0)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const applyPreset = (preset: typeof QUICK_PRESETS[0]) => {
     setMerchant(preset.name.split(" ")[0]);
@@ -125,9 +147,26 @@ export default function AddReceivableModal({ visible, onClose }: AddReceivableMo
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={[styles.modalCard, { backgroundColor: colors.card }]}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      statusBarTranslucent={true}
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView
+        style={styles.overlay}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View
+          style={[
+            styles.modalCard,
+            {
+              backgroundColor: colors.card,
+              paddingBottom: insets.bottom + 16,
+            },
+          ]}
+        >
           {/* Simple Clean Header */}
           <View style={styles.header}>
             <View style={{ flex: 1 }}>
@@ -141,7 +180,12 @@ export default function AddReceivableModal({ visible, onClose }: AddReceivableMo
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={{ maxHeight: 460 }} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            ref={scrollRef}
+            style={{ flexShrink: 1 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             {/* 1-Tap Quick Presets Bar */}
             <Text style={[styles.sectionHeader, { color: colors.mutedForeground }]}>1-TAP QUICK PRESETS</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.presetScroll}>
@@ -178,6 +222,7 @@ export default function AddReceivableModal({ visible, onClose }: AddReceivableMo
                   placeholderTextColor={colors.mutedForeground}
                   value={rawText}
                   onChangeText={setRawText}
+                  onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120)}
                 />
                 <TouchableOpacity style={[styles.parseBtn, { backgroundColor: colors.primary }]} onPress={handleSmartParse}>
                   <Feather name="cpu" size={14} color="#fff" style={{ marginRight: 6 }} />
@@ -194,6 +239,7 @@ export default function AddReceivableModal({ visible, onClose }: AddReceivableMo
               placeholderTextColor={colors.mutedForeground}
               value={merchant}
               onChangeText={setMerchant}
+              onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120)}
             />
 
             <View style={styles.row}>
@@ -261,7 +307,7 @@ export default function AddReceivableModal({ visible, onClose }: AddReceivableMo
             </Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -276,7 +322,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     padding: 24,
-    maxHeight: "88%",
+    maxHeight: "92%",
   },
   header: {
     flexDirection: "row",

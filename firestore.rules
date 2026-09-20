@@ -10,10 +10,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return signedIn() && (
-        request.auth.token.admin == true ||
-        request.auth.token.email == "agarwaltanmay401@gmail.com"
-      );
+      return signedIn() && request.auth.token.email == "agarwaltanmay401@gmail.com";
     }
 
     function ownerUserCreateFields() {
@@ -30,7 +27,11 @@ service cloud.firestore {
         "verifiedAt",
         "authProvider",
         "createdAt",
-        "lastActive"
+        "lastActive",
+        "pushToken",
+        "pushTokenPlatform",
+        "pushTokenUpdatedAt",
+        "notificationPermission"
       ];
     }
 
@@ -44,7 +45,11 @@ service cloud.firestore {
         "emailVerified",
         "pendingVerification",
         "verifiedAt",
-        "lastActive"
+        "lastActive",
+        "pushToken",
+        "pushTokenPlatform",
+        "pushTokenUpdatedAt",
+        "notificationPermission"
       ];
     }
 
@@ -81,7 +86,13 @@ service cloud.firestore {
       allow delete: if isAdmin();
 
       match /expenses/{expenseId} {
-        allow read, write: if isOwner(userId) || isAdmin();
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update, delete: if isOwner(userId) || isAdmin() || (
+          signedIn() && (
+            (request.resource != null && request.resource.data.householdCreatedBy == request.auth.uid) ||
+            (resource != null && resource.data.householdCreatedBy == request.auth.uid)
+          )
+        );
       }
 
       match /notifications/{notificationId} {
@@ -94,6 +105,23 @@ service cloud.firestore {
 
       match /budgets/{budgetId} {
         allow read, write: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // Collection-group reads used by the authenticated admin monitor.
+    match /{path=**}/expenses/{expenseId} {
+      allow read: if isAdmin();
+    }
+
+    match /{path=**}/notifications/{notificationId} {
+      allow read: if isAdmin();
+    }
+
+    // Households & Split Ledgers
+    match /households/{householdId} {
+      allow read, write: if signedIn();
+      match /{allChildren=**} {
+        allow read, write: if signedIn();
       }
     }
 

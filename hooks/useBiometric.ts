@@ -1,5 +1,8 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as LocalAuthentication from "expo-local-authentication";
 import { Platform } from "react-native";
+
+export const BIOMETRIC_PREF_KEY = "@whisperledger_biometric_enabled";
 
 export interface BiometricResult {
   success: boolean;
@@ -55,6 +58,32 @@ export async function checkBiometricAvailable(): Promise<{
 }
 
 /**
+ * Check if the user has enabled biometric lock in WhisperLedger settings.
+ * Defaults to false (no biometrics unless registered/enabled by user).
+ */
+export async function isBiometricEnabled(): Promise<boolean> {
+  if (Platform.OS === "web") return false;
+  try {
+    const val = await AsyncStorage.getItem(BIOMETRIC_PREF_KEY);
+    return val === "true";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Set biometric enabled/disabled in storage.
+ */
+export async function setBiometricEnabled(enabled: boolean): Promise<void> {
+  if (Platform.OS === "web") return;
+  try {
+    await AsyncStorage.setItem(BIOMETRIC_PREF_KEY, enabled ? "true" : "false");
+  } catch (e) {
+    console.warn("[Biometric] Failed to save biometric preference:", e);
+  }
+}
+
+/**
  * Prompt the user for biometric authentication.
  * Falls back to device PIN/Pattern/Password if biometrics fail.
  */
@@ -89,5 +118,41 @@ export async function authenticateWithBiometrics(
   } catch (e: any) {
     console.warn("[Biometric] Authentication error:", e);
     return { success: false, error: e?.message || "Authentication error" };
+  }
+}
+
+/**
+ * Registers biometric authentication for the first time.
+ * Verifies hardware & enrolled status, prompts biometric scan, and saves preference only on success.
+ */
+export async function registerBiometrics(): Promise<BiometricResult> {
+  if (Platform.OS === "web") {
+    return { success: false, error: "Biometrics not supported on web" };
+  }
+
+  const { available, biometricType } = await checkBiometricAvailable();
+  if (!available) {
+    return {
+      success: false,
+      error: "No biometric sensor or enrolled fingerprint/face found on this device. Please set up fingerprint or Face ID in device settings.",
+    };
+  }
+
+  const label =
+    biometricType === "faceId"
+      ? "Face ID"
+      : biometricType === "iris"
+      ? "Iris Recognition"
+      : "Fingerprint";
+
+  const authResult = await authenticateWithBiometrics(
+    `Verify your ${label} to enable Biometric Lock`
+  );
+
+  if (authResult.success) {
+    await setBiometricEnabled(true);
+    return { success: true };
+  } else {
+    return authResult;
   }
 }

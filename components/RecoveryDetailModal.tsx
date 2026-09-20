@@ -2,7 +2,9 @@ import { Feather } from "@expo/vector-icons";
 import React, { useState } from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 
 import { useReceivables } from "@/context/ReceivablesContext";
@@ -32,6 +35,7 @@ interface RecoveryDetailModalProps {
 
 export default function RecoveryDetailModal({ receivable, visible, onClose }: RecoveryDetailModalProps) {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const { addInteractionLog, markAsRecovered, deleteReceivable } = useReceivables();
   const { requirePro } = useSubscription();
 
@@ -123,9 +127,12 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={[styles.modalCard, { backgroundColor: colors.card }]}>
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent={true} onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        style={styles.overlay}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={[styles.modalCard, { backgroundColor: colors.card, paddingBottom: insets.bottom + 16, maxHeight: "92%" }]}>
           {/* Header */}
           <View style={styles.header}>
             <View style={{ flex: 1 }}>
@@ -310,7 +317,7 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
             )}
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

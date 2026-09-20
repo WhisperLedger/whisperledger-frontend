@@ -27,6 +27,7 @@ export function appGradients(colors: AppColors) {
     hero: dark
       ? (["#0B1224", "#0E1830", "#080A10"] as const)
       : (["#F0F7FF", "#E0EEFF", "#FFFFFF"] as const),
+    royalHero: (["#1E3A8A", "#2563EB", "#3882FF"] as const),
     primary: dark
       ? (["#3882FF", "#2563EB"] as const)
       : (["#0066FF", "#0052CC"] as const),
@@ -36,6 +37,10 @@ export function appGradients(colors: AppColors) {
     subtle: dark
       ? (["#161B30", "#0E111F"] as const)
       : (["#FFFFFF", "#F8FAFC"] as const),
+    categoryPurple: (["#8B5CF6", "#6D28D9"] as const),
+    categoryBlue: (["#38BDF8", "#0284C7"] as const),
+    categoryGreen: (["#10B981", "#047857"] as const),
+    categoryOrange: (["#F97316", "#C2410C"] as const),
   };
 }
 
@@ -43,14 +48,29 @@ export function surfaceStyle(colors: AppColors, elevated = true): ViewStyle {
   const dark = isDarkPalette(colors);
   return {
     backgroundColor: colors.card,
-    borderRadius: 14,
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: isDarkPalette(colors) ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: elevated ? 8 : 2 },
-    shadowOpacity: dark ? 0.22 : elevated ? 0.07 : 0.03,
-    shadowRadius: elevated ? 18 : 8,
+    shadowOpacity: dark ? 0.25 : elevated ? 0.06 : 0.02,
+    shadowRadius: elevated ? 16 : 8,
     elevation: elevated ? 4 : 1,
+  };
+}
+
+export function floatingDock(colors: AppColors): ViewStyle {
+  const dark = isDarkPalette(colors);
+  return {
+    backgroundColor: dark ? "rgba(15, 23, 42, 0.94)" : "rgba(255, 255, 255, 0.95)",
+    borderRadius: 36,
+    borderWidth: 1,
+    borderColor: dark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.06)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: dark ? 0.4 : 0.12,
+    shadowRadius: 24,
+    elevation: 10,
   };
 }
 

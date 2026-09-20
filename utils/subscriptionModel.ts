@@ -22,6 +22,9 @@ export interface UserSubscription {
   trialUsed?: boolean;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+export const APP_TRIAL_DAYS = 7;
+
 export const DEFAULT_PLAN_CONFIG: PlanConfig = {
   monthlyPrice: 99,
   yearlyPrice: 799,
@@ -32,6 +35,22 @@ export const DEFAULT_PLAN_CONFIG: PlanConfig = {
   freeRefundCaseLimit: 2,
   freeBudgetLimit: 1,
 };
+
+export function isUpgradeablePlan(plan: unknown): plan is "monthly" | "yearly" {
+  return plan === "monthly" || plan === "yearly";
+}
+
+export function createAppTrialSubscription(now = Date.now()): UserSubscription {
+  return {
+    tier: "pro",
+    plan: "trial",
+    status: "active",
+    startedAt: now,
+    expiresAt: now + APP_TRIAL_DAYS * DAY_MS,
+    isLifetime: false,
+    trialUsed: true,
+  };
+}
 
 export function normalizePlanConfig(data?: Partial<PlanConfig>): PlanConfig {
   const intOrDefault = (value: unknown, fallback: number, min = 0, max = 100000) => {
@@ -52,11 +71,47 @@ export function normalizePlanConfig(data?: Partial<PlanConfig>): PlanConfig {
   };
 }
 
+export function extractExpiryMs(expiresAt: unknown): number | null {
+  if (expiresAt === null || expiresAt === undefined || expiresAt === "") return null;
+  if (typeof expiresAt === "number") return Number.isFinite(expiresAt) ? expiresAt : null;
+  if (typeof (expiresAt as any)?.toMillis === "function") return (expiresAt as any).toMillis();
+  if (typeof (expiresAt as any)?.seconds === "number") return (expiresAt as any).seconds * 1000;
+  if (typeof (expiresAt as any)?.toDate === "function") return (expiresAt as any).toDate().getTime();
+  if (expiresAt instanceof Date) return expiresAt.getTime();
+  if (typeof expiresAt === "string") {
+    const num = Number(expiresAt);
+    if (Number.isFinite(num) && num > 0) return num;
+    const parsed = new Date(expiresAt).getTime();
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 export function hasActiveProAccess(subscription?: Partial<UserSubscription>, now = Date.now()): boolean {
-  if (!subscription || subscription.tier !== "pro") return false;
+  if (!subscription) return false;
+  const isProTier = subscription.tier === "pro" || (subscription as any).isPro === true;
+  if (!isProTier) return false;
   if (subscription.isLifetime || subscription.plan === "lifetime") return true;
-  if (subscription.status !== "active") return false;
-  return !subscription.expiresAt || now <= subscription.expiresAt;
+  if (subscription.status && subscription.status !== "active") return false;
+
+  const expiryMs = extractExpiryMs(subscription.expiresAt);
+  if (expiryMs === null) return true;
+  return now <= expiryMs;
+}
+
+export function resolveEffectiveSubscription(
+  remoteSubscription?: Partial<UserSubscription>,
+  fallbackSubscription?: Partial<UserSubscription> | null,
+  now = Date.now()
+): UserSubscription {
+  const remote = resolveUserSubscription(remoteSubscription, now);
+  if (hasActiveProAccess(remote, now)) return remote;
+
+  if (!remoteSubscription && hasActiveProAccess(fallbackSubscription || undefined, now)) {
+    return resolveUserSubscription(fallbackSubscription || undefined, now);
+  }
+
+  return remote;
 }
 
 export function resolveUserSubscription(subscription?: Partial<UserSubscription>, now = Date.now()): UserSubscription {

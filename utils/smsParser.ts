@@ -27,34 +27,31 @@ export function isSmsAutoSyncAvailable(): boolean {
 
 export async function hasSmsPermission(): Promise<boolean> {
   if (Platform.OS !== "android") return false;
-  return PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS);
+  const read = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS);
+  const receive = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECEIVE_SMS);
+  return read && receive;
 }
 
 export async function requestSmsPermission(): Promise<boolean> {
   if (Platform.OS !== "android") return false;
 
-  if (!SmsAndroid?.list) {
-    console.warn("SMS library not found. Use an Android development/production build with react-native-get-sms-android linked.");
-    return false;
-  }
-
   try {
-    const existing = await hasSmsPermission();
-    if (existing) return true;
-
-    const granted = await PermissionsAndroid.request(
+    const permissionsToRequest: any[] = [
       PermissionsAndroid.PERMISSIONS.READ_SMS,
-      {
-        title: "SMS Permission",
-        message: "We need access to your SMS to automatically track expenses.",
-        buttonNeutral: "Ask Me Later",
-        buttonNegative: "Cancel",
-        buttonPositive: "OK",
-      }
-    );
-    return granted === PermissionsAndroid.RESULTS.GRANTED;
+      PermissionsAndroid.PERMISSIONS.RECEIVE_SMS,
+    ];
+
+    if (Platform.OS === "android" && typeof Platform.Version === "number" && Platform.Version >= 33) {
+      permissionsToRequest.push(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+    }
+
+    const results = await PermissionsAndroid.requestMultiple(permissionsToRequest);
+    const readGranted = results[PermissionsAndroid.PERMISSIONS.READ_SMS] === PermissionsAndroid.RESULTS.GRANTED;
+    const receiveGranted = results[PermissionsAndroid.PERMISSIONS.RECEIVE_SMS] === PermissionsAndroid.RESULTS.GRANTED;
+
+    return readGranted && receiveGranted;
   } catch (err) {
-    console.warn(err);
+    console.warn("Error requesting SMS permissions:", err);
     return false;
   }
 }
@@ -364,6 +361,10 @@ const CATEGORY_RULES: Record<CategoryId, CategoryRule> = {
   pets: {
     weight: 7,
     keywords: ["pet", "dog", "cat", "vet", "veterinary", "pedigree", "royal canin", "petmart", "heads up for tails"],
+  },
+  maid_cook: {
+    weight: 9,
+    keywords: ["maid", "cook", "househelp", "house help", "cleaning", "bai", "chef", "kamwali", "cook salary", "maid salary"],
   },
   other: {
     weight: 1,

@@ -8,6 +8,8 @@ import React, { useState, useRef } from "react";
 import {
   Alert,
   FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -21,6 +23,9 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useBudgets } from "@/context/BudgetContext";
+import { useHousehold } from "@/context/HouseholdContext";
+import HouseholdSpaceHeader from "@/components/HouseholdSpaceHeader";
+import HouseholdManagementModal from "@/components/HouseholdManagementModal";
 import { useTheme } from "@/context/ThemeContext";
 import { CATEGORIES, CategoryId, useExpenses } from "@/context/ExpenseContext";
 import { useColors } from "@/hooks/useColors";
@@ -80,6 +85,24 @@ export default function AnalyticsScreen() {
   const [showSetModal, setShowSetModal] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<CategoryId | null>(null);
   const [limitInput, setLimitInput] = useState("");
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const { activeSpace, currentHousehold, householdExpenses } = useHousehold();
+  const [showHouseholdManage, setShowHouseholdManage] = useState(false);
+
+  React.useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => setKeyboardHeight(e.endCoordinates.height)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKeyboardHeight(0)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   React.useEffect(() => {
     if (params.tab === "budgets") {
@@ -87,11 +110,34 @@ export default function AnalyticsScreen() {
     }
   }, [params.tab]);
 
-  const totals = getCategoryTotalsForMonth(year, month);
-  const totalSpend = getTotalForMonth(year, month);
-  const expensesThisMonth = getExpensesForMonth(year, month);
-
   const selectedMonthStr = `${year}-${String(month).padStart(2, "0")}`;
+
+  const householdMonthExpenses = React.useMemo(() => {
+    return (householdExpenses || []).filter(
+      (e) => e?.date && e.date.startsWith(selectedMonthStr) && !e.isSettlement
+    );
+  }, [householdExpenses, selectedMonthStr]);
+
+  const householdTotals = React.useMemo(() => {
+    const result = {} as Record<CategoryId, number>;
+    CATEGORIES.forEach((c) => { result[c.id] = 0; });
+    householdMonthExpenses.forEach((e) => {
+      const catId = CATEGORIES.some((c) => c.id === e.categoryId) ? e.categoryId : "other";
+      result[catId] = (result[catId] || 0) + Number(e.amount || 0);
+    });
+    return result;
+  }, [householdMonthExpenses]);
+
+  const householdTotalSpend = React.useMemo(() => {
+    return householdMonthExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  }, [householdMonthExpenses]);
+
+  const totals =
+    activeSpace === "household" ? householdTotals : getCategoryTotalsForMonth(year, month);
+  const totalSpend =
+    activeSpace === "household" ? householdTotalSpend : getTotalForMonth(year, month);
+  const expensesThisMonth =
+    activeSpace === "household" ? (householdMonthExpenses as any) : getExpensesForMonth(year, month);
   
   const monthBudgetStatuses = React.useMemo(
     () =>
@@ -101,11 +147,17 @@ export default function AnalyticsScreen() {
           const spent = totals[b.categoryId] || 0;
           const remaining = Math.max(0, b.monthlyLimit - spent);
           const percentage = b.monthlyLimit > 0 ? (spent / b.monthlyLimit) * 100 : 0;
+          const isExceeded = b.monthlyLimit > 0 && spent > b.monthlyLimit;
+          const isReached = b.monthlyLimit > 0 && spent === b.monthlyLimit;
           const status =
-            percentage >= 100
+            b.monthlyLimit <= 0
+              ? "safe"
+              : isExceeded
               ? "exceeded"
-              : percentage >= 80
+              : isReached || percentage >= 100
               ? "critical"
+              : percentage >= 80
+              ? "warning"
               : percentage >= 50
               ? "warning"
               : "safe";
@@ -208,7 +260,7 @@ export default function AnalyticsScreen() {
     (c) => totals[c.id] === Math.max(...CATEGORIES.map((x) => totals[x.id] || 0))
   );
 
-  const trackedDaysCount = new Set(expensesThisMonth.map((e) => e.date)).size;
+  const trackedDaysCount = new Set(expensesThisMonth.map((e: any) => e.date)).size;
   const avgPerDay = trackedDaysCount > 0 ? totalSpend / trackedDaysCount : 0;
   const daysInSelectedMonth = new Date(year, month, 0).getDate();
   const noSpendDays = Math.max(daysInSelectedMonth - trackedDaysCount, 0);
@@ -222,20 +274,20 @@ export default function AnalyticsScreen() {
 
   const byDate: Record<string, number> = {};
   for (const e of expensesThisMonth) byDate[e.date] = (byDate[e.date] || 0) + Number(e.amount || 0);
-  const peakDayEntry = Object.entries(byDate).sort((a, b) => b[1] - a[1])[0];
+  const peakDayEntry = Object.entries(byDate).sort((a: [string, number], b: [string, number]) => b[1] - a[1])[0];
   const peakDayDate = peakDayEntry?.[0] || null;
   const peakDayAmount = peakDayEntry?.[1] || 0;
 
   const firstHalfSpend = expensesThisMonth
-    .filter((e) => parseInt(e.date.split("-")[2], 10) <= 15)
-    .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+    .filter((e: any) => parseInt(e.date.split("-")[2], 10) <= 15)
+    .reduce((sum: number, e: any) => sum + Number(e.amount || 0), 0);
   const secondHalfSpend = totalSpend - firstHalfSpend;
 
   const paymentModeOrder = ["upi", "card", "cash", "netbanking", "none"] as const;
   const paymentModeTotals: { key: string; label: string; amount: number }[] = paymentModeOrder.map((mode) => {
     const amount = expensesThisMonth
-      .filter((e) => (e.paymentMode || "none") === mode)
-      .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+      .filter((e: any) => (e.paymentMode || "none") === mode)
+      .reduce((sum: number, e: any) => sum + Number(e.amount || 0), 0);
     return { key: mode, label: mode === "netbanking" ? "Bank" : mode.toUpperCase(), amount };
   });
 
@@ -245,12 +297,12 @@ export default function AnalyticsScreen() {
 
   const drillCat = drillCategory ? CATEGORIES.find((c) => c.id === drillCategory) : null;
   const drillExpenses = drillCategory
-    ? expensesThisMonth.filter((e) => e.categoryId === drillCategory).sort((a, b) => b.date.localeCompare(a.date))
+    ? expensesThisMonth.filter((e: any) => e.categoryId === drillCategory).sort((a: any, b: any) => b.date.localeCompare(a.date))
     : [];
   const drillPaymentExpenses = drillPaymentMode
     ? expensesThisMonth
-        .filter((e) => (e.paymentMode || "none") === drillPaymentMode)
-        .sort((a, b) => b.date.localeCompare(a.date))
+        .filter((e: any) => (e.paymentMode || "none") === drillPaymentMode)
+        .sort((a: any, b: any) => b.date.localeCompare(a.date))
     : [];
 
   const { requirePro } = useSubscription();
@@ -269,7 +321,7 @@ export default function AnalyticsScreen() {
       const result = await generateAndSharePDF(
         year,
         month,
-        expensesThisMonth.map((expense) => ({
+        expensesThisMonth.map((expense: any) => ({
           date: expense.date,
           note: expense.note,
           categoryId: expense.categoryId,
@@ -307,7 +359,7 @@ export default function AnalyticsScreen() {
       const result = await queueMonthlyStatementEmail(
         year,
         month,
-        expensesThisMonth.map((expense) => ({
+        expensesThisMonth.map((expense: any) => ({
           date: expense.date,
           note: expense.note,
           categoryId: expense.categoryId,
@@ -515,6 +567,169 @@ export default function AnalyticsScreen() {
       fontFamily: "Inter_700Bold",
       marginTop: 4,
     },
+    periodSelectorRow: {
+      flexDirection: "row",
+      backgroundColor: isDark ? "rgba(248, 250, 252, 0.05)" : "#F1F5F9",
+      borderRadius: 14,
+      padding: 4,
+      marginHorizontal: 16,
+      marginTop: 12,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    periodPill: {
+      flex: 1,
+      paddingVertical: 7,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 10,
+    },
+    periodPillActive: {
+      backgroundColor: colors.primary,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    periodPillText: {
+      fontSize: 12,
+      fontFamily: "Inter_600SemiBold",
+      color: colors.mutedForeground,
+    },
+    periodPillTextActive: {
+      color: "#FFFFFF",
+      fontFamily: "Inter_700Bold",
+    },
+    trendPillBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 999,
+      backgroundColor: isDark ? "rgba(16, 185, 129, 0.16)" : "#D1FAE5",
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(16, 185, 129, 0.3)" : "rgba(16, 185, 129, 0.2)",
+    },
+    trendPillText: {
+      fontSize: 11,
+      fontFamily: "Inter_700Bold",
+      color: "#10B981",
+    },
+    kpiCardsRow: {
+      flexDirection: "row",
+      gap: 10,
+      marginTop: 14,
+    },
+    kpiCard: {
+      flex: 1,
+      padding: 12,
+      borderRadius: 14,
+      backgroundColor: isDark ? "rgba(248, 250, 252, 0.04)" : "#F8FAFC",
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    kpiCardLabel: {
+      fontSize: 10,
+      color: colors.mutedForeground,
+      fontFamily: "Inter_600SemiBold",
+      textTransform: "uppercase",
+      letterSpacing: 0.4,
+    },
+    kpiCardAmount: {
+      fontSize: 15,
+      fontWeight: "700",
+      fontFamily: "Inter_700Bold",
+      color: colors.foreground,
+      marginTop: 4,
+    },
+    multiBarContainer: {
+      marginHorizontal: 16,
+      marginBottom: 14,
+      padding: 16,
+      borderRadius: 18,
+      ...surfaceStyle(colors, false),
+    },
+    multiBarTitle: {
+      fontSize: 11,
+      fontFamily: "Inter_700Bold",
+      color: colors.mutedForeground,
+      letterSpacing: 0.6,
+      textTransform: "uppercase",
+    },
+    multiBarTrack: {
+      height: 12,
+      borderRadius: 6,
+      backgroundColor: colors.muted,
+      flexDirection: "row",
+      overflow: "hidden",
+      marginBottom: 12,
+    },
+    multiBarLegend: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 12,
+    },
+    legendItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    legendDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+    },
+    legendLabel: {
+      fontSize: 11,
+      fontFamily: "Inter_500Medium",
+      color: colors.mutedForeground,
+    },
+    vividGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 10,
+      marginHorizontal: 16,
+      marginBottom: 16,
+    },
+    vividCard: {
+      width: "48.3%",
+      borderRadius: 18,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 8,
+      elevation: 3,
+    },
+    vividIconCircle: {
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      backgroundColor: "rgba(255, 255, 255, 0.22)",
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 10,
+    },
+    vividLabel: {
+      color: "rgba(255, 255, 255, 0.9)",
+      fontSize: 12,
+      fontFamily: "Inter_600SemiBold",
+    },
+    vividAmount: {
+      color: "#FFFFFF",
+      fontSize: 18,
+      fontFamily: "Inter_700Bold",
+      fontWeight: "700",
+      marginTop: 2,
+    },
+    vividSub: {
+      color: "rgba(255, 255, 255, 0.75)",
+      fontSize: 10.5,
+      fontFamily: "Inter_500Medium",
+      marginTop: 4,
+    },
     statsRow: { flexDirection: "row", marginHorizontal: 16, gap: 10, marginBottom: 10 },
     statCard: {
       flex: 1,
@@ -698,8 +913,15 @@ export default function AnalyticsScreen() {
     <View style={s.container}>
       <View style={s.header}>
         <View style={s.headerTop}>
-          <Text style={s.headerTitle}>Insights</Text>
+          <Text style={s.headerTitle}>
+            {activeSpace === "household" ? "Household Insights" : "Insights"}
+          </Text>
         </View>
+
+        <View style={{ marginTop: 8, marginBottom: 8 }}>
+          <HouseholdSpaceHeader onOpenHouseholdManage={() => setShowHouseholdManage(true)} />
+        </View>
+
         <View style={s.segmentRow}>
           <TouchableOpacity
             style={[s.segmentBtn, activeSegment === "charts" && s.segmentBtnActive]}
@@ -1212,6 +1434,8 @@ export default function AnalyticsScreen() {
                                 >
                                   {status.status === "exceeded"
                                     ? "Exceeded"
+                                    : status.percentage >= 100
+                                    ? "Limit Reached"
                                     : status.status === "critical"
                                     ? "Critical"
                                     : status.status === "warning"
@@ -1434,100 +1658,106 @@ export default function AnalyticsScreen() {
         visible={showSetModal}
         transparent
         animationType="slide"
+        statusBarTranslucent={true}
         onRequestClose={closeSetBudgetModal}
       >
         <Pressable style={s.modalOverlay} onPress={closeSetBudgetModal}>
-          <View
-            style={{
-              backgroundColor: colors.card,
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
-              padding: 24,
-              paddingBottom: Platform.OS === "ios" ? insets.bottom + 24 : 24,
-            }}
-            onStartShouldSetResponder={() => true}
+          <KeyboardAvoidingView
+            style={{ width: "100%", justifyContent: "flex-end" }}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
           >
-            {selectedCategory && (() => {
-              const cat = CATEGORIES.find((c) => c.id === selectedCategory)!;
-              return (
-                <>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 20 }}>
+            <View
+              style={{
+                backgroundColor: colors.card,
+                borderTopLeftRadius: 24,
+                borderTopRightRadius: 24,
+                padding: 24,
+                paddingBottom: insets.bottom + 24,
+              }}
+              onStartShouldSetResponder={() => true}
+            >
+              {selectedCategory && (() => {
+                const cat = CATEGORIES.find((c) => c.id === selectedCategory)!;
+                return (
+                  <>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 20 }}>
+                      <View
+                        style={{
+                          width: 42,
+                          height: 42,
+                          borderRadius: 13,
+                          backgroundColor: cat.color + "20",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Feather name={cat.icon as any} size={20} color={cat.color} />
+                      </View>
+                      <View>
+                        <Text style={{ fontSize: 18, fontFamily: "Inter_700Bold", color: colors.foreground }}>
+                          {cat.label} Budget
+                        </Text>
+                        <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: "Inter_400Regular" }}>
+                          Set monthly limit for {MONTH_NAMES[month - 1]} {year}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Text style={{ fontSize: 13, color: colors.mutedForeground, fontFamily: "Inter_500Medium", marginBottom: 8 }}>
+                      Monthly Limit (₹)
+                    </Text>
                     <View
                       style={{
-                        width: 42,
-                        height: 42,
-                        borderRadius: 13,
-                        backgroundColor: cat.color + "20",
+                        flexDirection: "row",
                         alignItems: "center",
-                        justifyContent: "center",
+                        backgroundColor: colors.input,
+                        borderRadius: 12,
+                        paddingHorizontal: 14,
+                        borderWidth: 1.5,
+                        borderColor: colors.border,
+                        marginBottom: 20,
                       }}
                     >
-                      <Feather name={cat.icon as any} size={20} color={cat.color} />
+                      <Text style={{ fontSize: 18, color: colors.primary, fontFamily: "Inter_600SemiBold", marginRight: 8 }}>₹</Text>
+                      <TextInput
+                        value={limitInput}
+                        onChangeText={setLimitInput}
+                        keyboardType="numeric"
+                        placeholder="5000"
+                        placeholderTextColor={colors.mutedForeground}
+                        style={{
+                          flex: 1,
+                          fontSize: 20,
+                          fontFamily: "Inter_600SemiBold",
+                          color: colors.foreground,
+                          paddingVertical: 14,
+                        }}
+                      />
                     </View>
-                    <View>
-                      <Text style={{ fontSize: 18, fontFamily: "Inter_700Bold", color: colors.foreground }}>
-                        {cat.label} Budget
-                      </Text>
-                      <Text style={{ fontSize: 12, color: colors.mutedForeground, fontFamily: "Inter_400Regular" }}>
-                        Set monthly limit for {MONTH_NAMES[month - 1]} {year}
-                      </Text>
-                    </View>
-                  </View>
 
-                  <Text style={{ fontSize: 13, color: colors.mutedForeground, fontFamily: "Inter_500Medium", marginBottom: 8 }}>
-                    Monthly Limit (₹)
-                  </Text>
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      backgroundColor: colors.input,
-                      borderRadius: 12,
-                      paddingHorizontal: 14,
-                      borderWidth: 1.5,
-                      borderColor: colors.border,
-                      marginBottom: 20,
-                    }}
-                  >
-                    <Text style={{ fontSize: 18, color: colors.primary, fontFamily: "Inter_600SemiBold", marginRight: 8 }}>₹</Text>
-                    <TextInput
-                      value={limitInput}
-                      onChangeText={setLimitInput}
-                      keyboardType="numeric"
-                      placeholder="5000"
-                      placeholderTextColor={colors.mutedForeground}
-                      style={{
-                        flex: 1,
-                        fontSize: 20,
-                        fontFamily: "Inter_600SemiBold",
-                        color: colors.foreground,
-                        paddingVertical: 14,
-                      }}
-                    />
-                  </View>
-
-                  <TouchableOpacity
-                    onPress={handleSetBudget}
-                    activeOpacity={0.85}
-                    style={{ borderRadius: 14, overflow: "hidden" }}
-                  >
-                    <LinearGradient
-                      colors={gradients.primary}
-                      style={{
-                        paddingVertical: 16,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
+                    <TouchableOpacity
+                      onPress={handleSetBudget}
+                      activeOpacity={0.85}
+                      style={{ borderRadius: 14, overflow: "hidden" }}
                     >
-                      <Text style={{ fontSize: 16, fontFamily: "Inter_700Bold", color: "#fff" }}>
-                        Set Budget
-                      </Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </>
-              );
-            })()}
-          </View>
+                      <LinearGradient
+                        colors={gradients.primary}
+                        style={{
+                          paddingVertical: 16,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Text style={{ fontSize: 16, fontFamily: "Inter_700Bold", color: "#fff" }}>
+                          Set Budget
+                        </Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </>
+                );
+              })()}
+            </View>
+          </KeyboardAvoidingView>
         </Pressable>
       </Modal>
 
@@ -1689,6 +1919,11 @@ export default function AnalyticsScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <HouseholdManagementModal
+        visible={showHouseholdManage}
+        onClose={() => setShowHouseholdManage(false)}
+      />
     </View>
   );
 }

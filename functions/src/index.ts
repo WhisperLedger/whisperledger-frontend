@@ -114,8 +114,8 @@ export const onNotificationCreated = onDocumentCreated(
     const notifId = event.params.notifId as string;
     const data = snap.data();
 
-    // Skip if already read (e.g., written as read:true by the app itself)
-    if (data.read === true) return;
+    // Skip if already read or pushed directly by client
+    if (data.read === true || data.pushedDirectly === true) return;
     if (data.notificationType === "sms_approval" || data.data?.isLocalOnly || data.data?.smsApproval) {
       logger.info("onNotificationCreated: local SMS approval notification skipped", { userId, notifId });
       return;

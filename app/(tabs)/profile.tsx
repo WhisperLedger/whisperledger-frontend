@@ -4,6 +4,7 @@ import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Modal,
@@ -21,8 +22,17 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import PrivacyConsentModal from "@/components/PrivacyConsentModal";
 import SupportModal from "@/components/SupportModal";
+import HouseholdManagementModal from "@/components/HouseholdManagementModal";
+import {
+  authenticateWithBiometrics,
+  checkBiometricAvailable,
+  isBiometricEnabled,
+  registerBiometrics,
+  setBiometricEnabled as setBiometricEnabledStorage,
+} from "@/hooks/useBiometric";
 
 import { useAuth } from "@/context/AuthContext";
+import { useHousehold } from "@/context/HouseholdContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
 import { isSmsAutoSyncAvailable, requestSmsPermission } from "@/utils/smsParser";
@@ -109,6 +119,8 @@ function Divider() {
   return <View style={{ height: 1, backgroundColor: colors.border, marginHorizontal: 16 }} />;
 }
 
+import ProBadge from "@/components/ProBadge";
+
 const getFallbackAvatar = (isDarkTheme: boolean) =>
   isDarkTheme
     ? require("../../assets/images/default_avatar_dark.png")
@@ -119,7 +131,8 @@ export default function ProfileScreen() {
   const { theme, setTheme } = useTheme();
   const insets = useSafeAreaInsets();
   const { user, logout, updateProfile } = useAuth();
-  const { isPro, isLifetime, plan, openPaywall } = useSubscription();
+  const { currentHousehold } = useHousehold();
+  const { isPro, isLifetime, plan, pendingProRequest, pendingProPlan, openPaywall, cancelSubscription } = useSubscription();
   const isDark = isDarkPalette(colors);
   const gradients = appGradients(colors);
 
@@ -128,6 +141,7 @@ export default function ProfileScreen() {
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [showSupportModal, setShowSupportModal] = useState(false);
+  const [showHouseholdModal, setShowHouseholdModal] = useState(false);
   const [showAvatarOptions, setShowAvatarOptions] = useState(false);
   const [pendingAvatar, setPendingAvatar] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [showAvatarPreview, setShowAvatarPreview] = useState(false);
@@ -231,6 +245,87 @@ export default function ProfileScreen() {
   };
 
   const [showConsentModal, setShowConsentModal] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricType, setBiometricType] = useState<"fingerprint" | "faceId" | "iris" | "none">("none");
+  const [biometricChecking, setBiometricChecking] = useState(false);
+
+  React.useEffect(() => {
+    let active = true;
+    async function loadBiometrics() {
+      const enabled = await isBiometricEnabled();
+      if (!active) return;
+      setBiometricEnabled(enabled);
+      const { biometricType: bt } = await checkBiometricAvailable();
+      if (!active) return;
+      setBiometricType(bt);
+    }
+    void loadBiometrics();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleToggleBiometric = async () => {
+    if (biometricChecking) return;
+
+    if (!biometricEnabled) {
+      // Must register biometrics first before enabling
+      setBiometricChecking(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      const { available, biometricType: bt } = await checkBiometricAvailable();
+      if (!available) {
+        setBiometricChecking(false);
+        Alert.alert(
+          "Biometrics Unavailable",
+          "No enrolled fingerprint or Face ID found on this device. Please set up fingerprint or Face ID in your phone's system settings first."
+        );
+        return;
+      }
+
+      setBiometricType(bt);
+      const res = await registerBiometrics();
+      setBiometricChecking(false);
+
+      if (res.success) {
+        setBiometricEnabled(true);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert(
+          "Biometric Lock Active",
+          `WhisperLedger is now registered and protected with your ${bt === "faceId" ? "Face ID" : "fingerprint"}.`
+        );
+      } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        if (res.error && res.error !== "Authentication cancelled") {
+          Alert.alert("Registration Failed", res.error);
+        }
+      }
+    } else {
+      Alert.alert(
+        "Disable Biometric Lock?",
+        "Anyone who has access to your phone will be able to open WhisperLedger without biometric verification.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Disable",
+            style: "destructive",
+            onPress: async () => {
+              setBiometricChecking(true);
+              const auth = await authenticateWithBiometrics("Verify to disable Biometric Lock");
+              setBiometricChecking(false);
+              if (auth.success) {
+                await setBiometricEnabledStorage(false);
+                setBiometricEnabled(false);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              } else if (auth.error && auth.error !== "Authentication cancelled") {
+                Alert.alert("Verification Failed", auth.error);
+              }
+            },
+          },
+        ]
+      );
+    }
+  };
 
   const handleToggleAutoSync = async (newValue: boolean) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -273,6 +368,50 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleManagePro = () => {
+    if (!isPro) {
+      if (!pendingProRequest) openPaywall("Pro Membership");
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const planName = isLifetime
+      ? "Lifetime Access"
+      : plan === "trial"
+        ? "7-Day Free Trial"
+        : plan === "yearly"
+          ? "Annual Plan"
+          : "Monthly Plan";
+    Alert.alert(
+      "WhisperLedger Pro",
+      `Plan: ${planName}\nStatus: Active\n\nAll premium features are active: AI Advisor, Unlimited Wallets, Bank Statements, and Debt Recovery Engine.`,
+      [
+        { text: "Done", style: "cancel" },
+        {
+          text: "Cancel Subscription",
+          style: "destructive",
+          onPress: () => {
+            Alert.alert(
+              "Cancel Pro Membership",
+              "Are you sure you want to cancel your Pro membership? You will return to the free tier at the end of the billing period.",
+              [
+                { text: "Keep Membership", style: "cancel" },
+                {
+                  text: "Cancel Pro",
+                  style: "destructive",
+                  onPress: async () => {
+                    await cancelSubscription();
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    Alert.alert("Subscription Canceled", "Your account has been switched back to the free tier.");
+                  },
+                },
+              ]
+            );
+          },
+        },
+      ]
+    );
+  };
+
   const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     headerGrad: { paddingTop: topPad + 16, paddingBottom: 40, paddingHorizontal: 20 },
@@ -299,8 +438,8 @@ export default function ProfileScreen() {
       alignItems: "center",
       justifyContent: "center",
       overflow: "hidden",
-      borderWidth: 2,
-      borderColor: colors.border,
+      borderWidth: isPro ? 2.5 : 2,
+      borderColor: isPro ? "#F59E0B" : colors.border,
     },
     avatarImage: {
       width: 84,
@@ -555,6 +694,72 @@ export default function ProfileScreen() {
       fontFamily: "Inter_700Bold",
       color: "#fff",
     },
+    membershipCard: {
+      marginTop: 16,
+      marginHorizontal: 4,
+      borderRadius: 18,
+      padding: 14,
+      backgroundColor: isDark ? "rgba(56, 130, 255, 0.15)" : "#EFF6FF",
+      borderWidth: 1.5,
+      borderColor: colors.primary,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+    proAppIcon: {
+      width: 46,
+      height: 46,
+      borderRadius: 14,
+      alignItems: "center",
+      justifyContent: "center",
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: isPro ? 0.28 : 0.12,
+      shadowRadius: 12,
+      elevation: isPro ? 5 : 2,
+    },
+    proIconCorner: {
+      position: "absolute",
+      right: -4,
+      top: -4,
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      backgroundColor: isPro ? colors.primary : colors.card,
+      borderWidth: 1,
+      borderColor: isPro ? colors.primary : colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    membershipTitleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      flexWrap: "wrap",
+    },
+    membershipTitle: {
+      fontSize: 14,
+      fontFamily: "Inter_700Bold",
+      color: colors.foreground,
+    },
+    membershipBadge: {
+      backgroundColor: colors.primary,
+      paddingVertical: 1,
+      paddingHorizontal: 6,
+      borderRadius: 6,
+    },
+    membershipBadgeText: {
+      fontSize: 9,
+      fontFamily: "Inter_700Bold",
+      color: "#FFFFFF",
+    },
+    membershipSubtitle: {
+      fontSize: 11,
+      fontFamily: "Inter_400Regular",
+      color: colors.mutedForeground,
+      marginTop: 2,
+    },
   });
 
   return (
@@ -568,6 +773,11 @@ export default function ProfileScreen() {
           
           <View style={styles.avatarCenteredWrap}>
             <TouchableOpacity style={styles.avatarWrap} onPress={handleAvatarPress} activeOpacity={0.8}>
+              {isPro && (
+                <View style={{ position: "absolute", top: -8, right: -8, zIndex: 10 }}>
+                  <ProBadge size="sm" />
+                </View>
+              )}
               <View style={styles.avatar}>
                 {user?.avatarUri && !avatarLoadFailed ? (
                   <Image 
@@ -615,67 +825,96 @@ export default function ProfileScreen() {
           <Text style={styles.usernameTextCentered}>@{user?.username}</Text>
           <Text style={styles.emailTextCentered}>{user?.email}</Text>
 
-          {/* Pro Membership Banner Card */}
+          {/* Pro Membership Card */}
           <TouchableOpacity
-            style={{
-              marginTop: 16,
-              marginHorizontal: 4,
-              borderRadius: 18,
-              padding: 14,
-              backgroundColor: isPro
-                ? (isDark ? "rgba(245, 158, 11, 0.15)" : "#FEF3C7")
-                : (isDark ? "rgba(56, 130, 255, 0.15)" : "#EFF6FF"),
-              borderWidth: 1.5,
-              borderColor: isPro ? "#F59E0B" : colors.primary,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-            onPress={() => openPaywall("VIP Pro Membership")}
+            style={[
+              styles.membershipCard,
+              isPro && {
+                borderColor: colors.primary,
+                backgroundColor: isDark ? "rgba(37, 99, 235, 0.12)" : "#EFF6FF",
+              },
+            ]}
+            onPress={handleManagePro}
             activeOpacity={0.85}
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}>
               <View
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 12,
-                  backgroundColor: isPro ? "#F59E0B" : colors.primary,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
+                style={[
+                  styles.proAppIcon,
+                  {
+                    backgroundColor: isPro ? colors.primary : isDark ? "#1E293B" : "#F1F5F9",
+                    shadowOpacity: isPro ? 0.2 : 0,
+                  },
+                ]}
               >
-                <Feather name={isPro ? "award" : "star"} size={20} color="#FFFFFF" />
+                <Feather
+                  name={isPro ? "shield" : "zap"}
+                  size={20}
+                  color={isPro ? "#FFFFFF" : colors.primary}
+                />
               </View>
               <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Text style={{ fontSize: 14, fontFamily: "Inter_700Bold", color: colors.foreground }}>
-                    {isPro ? (isLifetime ? "PRO VIP (Lifetime)" : `PRO (${plan.toUpperCase()})`) : "WhisperLedger PRO"}
+                <View style={styles.membershipTitleRow}>
+                  <Text style={styles.membershipTitle}>
+                    {isPro
+                      ? `WhisperLedger Pro • ${isLifetime ? "Lifetime" : plan === "trial" ? "Trial" : plan === "yearly" ? "Annual" : "Monthly"}`
+                      : pendingProRequest
+                        ? "Pro Request Pending"
+                        : "WhisperLedger Pro"}
                   </Text>
                   <View
-                    style={{
-                      backgroundColor: isPro ? "#F59E0B" : colors.primary,
-                      paddingVertical: 1,
-                      paddingHorizontal: 6,
-                      borderRadius: 6,
-                    }}
+                    style={[
+                      styles.membershipBadge,
+                      isPro
+                        ? { backgroundColor: colors.primary }
+                        : pendingProRequest
+                          ? { backgroundColor: "#F59E0B" }
+                          : { backgroundColor: colors.primary },
+                    ]}
                   >
-                    <Text style={{ fontSize: 9, fontFamily: "Inter_700Bold", color: "#FFFFFF" }}>
-                      {isPro ? "ACTIVE" : "UPGRADE"}
+                    <Text style={styles.membershipBadgeText}>
+                      {isPro ? (plan === "trial" ? "TRIAL" : "ACTIVE") : pendingProRequest ? "PENDING" : "UPGRADE"}
                     </Text>
                   </View>
                 </View>
-                <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: colors.mutedForeground, marginTop: 2 }} numberOfLines={1}>
-                  {isPro ? "All next-gen financial superpowers unlocked" : "AI Voice, PDF Statements & Recovery Engine"}
+                <Text style={styles.membershipSubtitle} numberOfLines={2}>
+                  {isPro
+                    ? "Active subscription • All AI, Multi-Wallet & Export features unlocked"
+                    : pendingProRequest
+                      ? "Approval pending by admin"
+                      : "Unlock AI Assistant, Multi-Wallets & Bank Statements"}
                 </Text>
               </View>
             </View>
-            <Feather name="chevron-right" size={18} color={isPro ? "#F59E0B" : colors.primary} />
+            <Feather
+              name={isPro ? "settings" : "chevron-right"}
+              size={18}
+              color={isPro ? colors.primary : colors.mutedForeground}
+            />
           </TouchableOpacity>
         </LinearGradient>
 
-        {/* Preferences */}
+        {/* Spaces & Household */}
         <View style={[styles.section, { marginTop: -20 }]}>
+          <Text style={styles.sectionLabel}>SPACES & HOUSEHOLD</Text>
+          <MenuItem
+            icon="home"
+            label="Household & Flatmates"
+            sublabel={
+              currentHousehold
+                ? `${currentHousehold.name} • ${Object.keys(currentHousehold.members || {}).length} members`
+                : "Manage shared splits & flatmates"
+            }
+            onPress={() => {
+              Haptics.selectionAsync();
+              setShowHouseholdModal(true);
+            }}
+            rightElement={<Feather name="chevron-right" size={16} color={colors.mutedForeground} />}
+          />
+        </View>
+
+        {/* Preferences */}
+        <View style={styles.section}>
           <Text style={styles.sectionLabel}>PREFERENCES</Text>
           <MenuItem
             icon={theme === "dark" ? "moon" : "sun"}
@@ -711,6 +950,30 @@ export default function ProfileScreen() {
               />
             }
           />
+          <Divider />
+          <MenuItem
+            icon="shield"
+            label="Biometric Security"
+            sublabel={
+              biometricChecking
+                ? "Verifying sensor…"
+                : biometricEnabled
+                ? `Active (${biometricType === "faceId" ? "Face ID" : "Fingerprint"})`
+                : "App Lock with Fingerprint / Face ID"
+            }
+            onPress={handleToggleBiometric}
+            rightElement={
+              biometricChecking ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Switch
+                  value={biometricEnabled}
+                  onValueChange={handleToggleBiometric}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                />
+              )
+            }
+          />
         </View>
 
         {/* Support */}
@@ -743,6 +1006,11 @@ export default function ProfileScreen() {
           <MenuItem icon="log-out" label="Sign Out" onPress={handleLogout} danger />
         </View>
       </ScrollView>
+
+      <HouseholdManagementModal
+        visible={showHouseholdModal}
+        onClose={() => setShowHouseholdModal(false)}
+      />
 
       <PrivacyConsentModal
         visible={showConsentModal}

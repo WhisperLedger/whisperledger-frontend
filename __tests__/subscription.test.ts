@@ -1,7 +1,9 @@
 import {
   hasActiveProAccess,
+  isUpgradeablePlan,
   normalizePlanConfig,
   PlanConfig,
+  resolveEffectiveSubscription,
   resolveUserSubscription,
   UserSubscription,
 } from "../utils/subscriptionModel";
@@ -104,5 +106,50 @@ describe("Subscription Model & Gating Logic", () => {
     expect(config.freeSmsLookbackLimit).toBe(10);
     expect(config.freeRefundCaseLimit).toBe(2);
     expect(config.freeBudgetLimit).toBe(1);
+  });
+
+  test("validates upgradeable plan values", () => {
+    expect(isUpgradeablePlan("monthly")).toBe(true);
+    expect(isUpgradeablePlan("yearly")).toBe(true);
+    expect(isUpgradeablePlan("free")).toBe(false);
+    expect(isUpgradeablePlan("lifetime")).toBe(false);
+    expect(isUpgradeablePlan(undefined)).toBe(false);
+  });
+
+  test("does not let local fallback override an explicit free remote profile", () => {
+    const now = new Date("2026-08-30T00:00:00Z").getTime();
+    const remoteFree: UserSubscription = {
+      tier: "free",
+      plan: "free",
+      status: "none",
+      expiresAt: null,
+    };
+    const cachedPro: UserSubscription = {
+      tier: "pro",
+      plan: "monthly",
+      status: "active",
+      startedAt: now - 1000,
+      expiresAt: now + 7 * 24 * 60 * 60 * 1000,
+    };
+    const effective = resolveEffectiveSubscription(remoteFree, cachedPro, now);
+
+    expect(effective.tier).toBe("free");
+    expect(hasActiveProAccess(effective, now)).toBe(false);
+  });
+
+  test("uses cached approved Pro only as an offline fallback", () => {
+    const now = new Date("2026-08-30T00:00:00Z").getTime();
+    const cachedPro: UserSubscription = {
+      tier: "pro",
+      plan: "yearly",
+      status: "active",
+      startedAt: now - 1000,
+      expiresAt: now + 365 * 24 * 60 * 60 * 1000,
+    };
+    const effective = resolveEffectiveSubscription(undefined, cachedPro, now);
+
+    expect(effective.tier).toBe("pro");
+    expect(effective.plan).toBe("yearly");
+    expect(hasActiveProAccess(effective, now)).toBe(true);
   });
 });

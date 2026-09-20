@@ -26,6 +26,7 @@ import { useColors } from "@/hooks/useColors";
 import { isDarkPalette, surfaceStyle } from "@/utils/designSystem";
 import { validateEmail } from "@/utils/validation";
 import FormattedErrorMessage from "@/components/FormattedErrorMessage";
+import ProAppLogo from "@/components/ProAppLogo";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -947,8 +948,9 @@ export default function LoginScreen() {
                 ]}
               >
                 <Image
-                  source={require("../assets/images/icon.png")}
-                  style={{ width: 64, height: 64, borderRadius: 16 }}
+                  source={require("@/assets/images/icon.png")}
+                  style={{ width: 68, height: 68, borderRadius: 20 }}
+                  resizeMode="cover"
                 />
               </Animated.View>
               <Text style={styles.heading}>Welcome back</Text>
@@ -1098,12 +1100,13 @@ export default function LoginScreen() {
         <Modal
           animationType="fade"
           transparent={true}
+          statusBarTranslucent={true}
           visible={forgotModalVisible}
           onRequestClose={() => setForgotModalVisible(false)}
         >
           <View style={styles.modalOverlay}>
             <KeyboardAvoidingView
-              behavior={Platform.OS === "ios" ? "padding" : "height"}
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
               style={{ width: "100%", alignItems: "center" }}
             >
               <View style={styles.modalCard}>

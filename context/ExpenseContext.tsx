@@ -4,7 +4,8 @@ import {
   onSnapshot, 
   query, 
   where, 
-  addDoc, 
+  addDoc,
+  setDoc, 
   updateDoc, 
   deleteDoc, 
   doc, 
@@ -20,6 +21,7 @@ import React, {
 } from "react";
 
 import { queueSMSApprovalNotifications, registerSMSBackgroundSync } from "@/utils/smsSync";
+import { markSMSApprovalProcessed, dismissAndClearNotification } from "@/utils/notifications";
 
 import { db } from "../lib/firebase";
 import { useAuth } from "./AuthContext";
@@ -30,6 +32,7 @@ export type CategoryId =
   | "travel"
   | "groceries"
   | "rent"
+  | "maid_cook"
   | "food_outside"
   | "transfer"
   | "utilities"
@@ -59,6 +62,7 @@ export const CATEGORIES: Category[] = [
   { id: "travel", label: "Travel", icon: "navigation", color: "#0EA5E9", lightColor: "#E0F2FE" },
   { id: "groceries", label: "Groceries", icon: "shopping-bag", color: "#10b981", lightColor: "#d1fae5" },
   { id: "rent", label: "Rent", icon: "home", color: "#7C2D12", lightColor: "#FFEDD5" },
+  { id: "maid_cook", label: "Maid & Cook", icon: "user-check", color: "#8B5CF6", lightColor: "#EDE9FE" },
   { id: "food_outside", label: "Food Outside", icon: "coffee", color: "#f59e0b", lightColor: "#fef3c7" },
   { id: "transfer", label: "Transfer", icon: "send", color: "#BE123C", lightColor: "#FFE4E6" },
   { id: "utilities", label: "Utilities", icon: "zap", color: "#0891B2", lightColor: "#CFFAFE" },
@@ -84,9 +88,16 @@ export interface Expense {
   paymentMode?: PaymentMode;
   note: string;
   merchant?: string;
+  location?: string;
   date: string; // ISO date string YYYY-MM-DD
   createdAt: number;
   smsId?: string;
+  householdExpenseId?: string;
+  householdId?: string;
+  isHouseholdSplitShare?: boolean;
+  householdCreatedBy?: string;
+  householdPayerUid?: string;
+  householdPayerName?: string;
 }
 
 interface ExpenseContextType {
@@ -148,6 +159,9 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
         setExpenses(loadedExpenses);
         AsyncStorage.setItem(`@expenses_${user.uid}`, JSON.stringify(loadedExpenses)).catch(() => null);
         setIsLoading(false);
+
+        // SMS Auto-Sync Check with full existing expenses
+        checkSMS(loadedExpenses);
       },
       error: async (err) => {
         console.warn("⚠️ Firestore snapshot listener failed (likely permission-denied/offline). Falling back to local cache.", err);
@@ -160,6 +174,7 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
               date: normalizeDateStr(e.date || ""),
             }));
             setExpenses(sanitized);
+            checkSMS(sanitized);
           }
         } catch (storageErr) {
           console.error("Local storage read failed:", storageErr);
@@ -168,27 +183,30 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    // SMS Auto-Sync Check
-    const checkSMS = async () => {
+    // SMS Auto-Sync Check (guarded to run once per mount/session)
+    let smsCheckDone = false;
+    const checkSMS = async (existingList?: Expense[]) => {
+      if (smsCheckDone) return;
       const autoSyncEnabled = await AsyncStorage.getItem("@auto_sync_enabled");
       if (autoSyncEnabled === "true") {
+        smsCheckDone = true;
         try {
-          await queueSMSApprovalNotifications({ userId: user.uid, existingExpenses: expenses });
+          await queueSMSApprovalNotifications({ userId: user.uid, existingExpenses: existingList || [] });
           await registerSMSBackgroundSync();
         } catch (e) {
           console.log("Auto sync check failed", e);
         }
       }
     };
-    checkSMS();
 
     return unsubscribe;
   }, [user, isAuthReady]);
 
   const addExpense = useCallback(async (expense: Omit<Expense, "id" | "createdAt">) => {
     if (!user) return;
-    const localId = Math.random().toString(36).substring(2, 9);
-    const newExpense: Expense = { id: localId, ...expense, createdAt: Date.now() };
+    const docRef = doc(collection(db, `users/${user.uid}/expenses`));
+    const docId = docRef.id;
+    const newExpense: Expense = { id: docId, ...expense, createdAt: Date.now() };
     
     // Optimistic UI Update
     setExpenses((prev) => [newExpense, ...prev]);
@@ -197,16 +215,19 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
       const cached = await AsyncStorage.getItem(`@expenses_${user.uid}`);
       const list = cached ? JSON.parse(cached) : [];
       await AsyncStorage.setItem(`@expenses_${user.uid}`, JSON.stringify([newExpense, ...list]));
+
+      if (newExpense.smsId) {
+        await markSMSApprovalProcessed(newExpense.smsId);
+        await dismissAndClearNotification(newExpense.smsId, user.uid);
+      }
     } catch (err) {
       console.error("Local storage save failed:", err);
     }
 
-    // Background Firestore Sync
+    // Background Firestore Sync using deterministic doc reference
     try {
-      await addDoc(collection(db, `users/${user.uid}/expenses`), {
-        ...expense,
-        createdAt: newExpense.createdAt,
-      });
+      const { id, ...firebaseData } = newExpense;
+      await setDoc(docRef, firebaseData);
     } catch (e) {
       console.warn("⚠️ Background Firestore Sync failed (offline or permission denied):", e);
     }
@@ -215,11 +236,14 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
   const addMultipleExpenses = useCallback(async (newItems: Omit<Expense, "id" | "createdAt">[]) => {
     if (!user || newItems.length === 0) return;
     const timestamp = Date.now();
-    const preparedItems = newItems.map((item, idx) => ({
-      id: Math.random().toString(36).substring(2, 9) + idx,
-      ...item,
-      createdAt: timestamp + idx,
-    }));
+    const preparedItems = newItems.map((item, idx) => {
+      const docRef = doc(collection(db, `users/${user.uid}/expenses`));
+      return {
+        id: docRef.id,
+        ...item,
+        createdAt: timestamp + idx,
+      };
+    });
 
     // Optimistic UI Update
     setExpenses((prev) => [...preparedItems, ...prev]);
@@ -228,15 +252,22 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
       const cached = await AsyncStorage.getItem(`@expenses_${user.uid}`);
       const list = cached ? JSON.parse(cached) : [];
       await AsyncStorage.setItem(`@expenses_${user.uid}`, JSON.stringify([...preparedItems, ...list]));
+
+      for (const item of preparedItems) {
+        if (item.smsId) {
+          await markSMSApprovalProcessed(item.smsId);
+          await dismissAndClearNotification(item.smsId, user.uid);
+        }
+      }
     } catch (err) {
       console.error("Local storage batch save failed:", err);
     }
 
-    // Sync to Firestore in background
+    // Sync to Firestore in background using deterministic doc references
     try {
       const batchPromises = preparedItems.map(item => {
         const { id, ...firebaseData } = item;
-        return addDoc(collection(db, `users/${user.uid}/expenses`), firebaseData);
+        return setDoc(doc(db, `users/${user.uid}/expenses`, id), firebaseData);
       });
       await Promise.all(batchPromises);
     } catch (e) {

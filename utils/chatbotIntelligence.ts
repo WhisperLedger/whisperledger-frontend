@@ -258,3 +258,43 @@ export function buildExpenseInsightAnswer(input: string, expenses: Expense[], no
     (top ? `\nBiggest category: **${categoryLabel(top[0])}** at **${inr(top[1])}**.` : "")
   );
 }
+
+export function buildHouseholdAndDuesInsightAnswer(
+  householdName: string,
+  debtsOwedToUser: Array<{ fromName: string; amount: number }>,
+  debtsOwedByUser: Array<{ toName: string; amount: number }>,
+  userNetBalance: number
+): string {
+  if (debtsOwedToUser.length === 0 && debtsOwedByUser.length === 0) {
+    return (
+      `In **${householdName}**, all flat dues are completely settled! 🎉\n\n` +
+      `No one owes you money, and you don't owe anyone. Clean slate!`
+    );
+  }
+
+  const lines: string[] = [`Here is the balance status for **${householdName}**:\n`];
+
+  if (userNetBalance > 0.01) {
+    lines.push(`🟢 **You get back ₹${userNetBalance.toFixed(2)} in total**`);
+  } else if (userNetBalance < -0.01) {
+    lines.push(`🔴 **You owe ₹${Math.abs(userNetBalance).toFixed(2)} in total**`);
+  }
+
+  if (debtsOwedToUser.length > 0) {
+    lines.push(`\n**Flatmates who owe you:**`);
+    debtsOwedToUser.forEach((d) => {
+      lines.push(`- **${d.fromName}** owes you **₹${d.amount.toFixed(2)}**`);
+    });
+  }
+
+  if (debtsOwedByUser.length > 0) {
+    lines.push(`\n**Money you owe:**`);
+    debtsOwedByUser.forEach((d) => {
+      lines.push(`- You owe **${d.toName}** **₹${d.amount.toFixed(2)}**`);
+    });
+  }
+
+  lines.push(`\n💡 *Tip: To settle, just tell me "settle [amount] with [name]" or use the Settle Up button on Home!*`);
+  return lines.join("\n");
+}
+

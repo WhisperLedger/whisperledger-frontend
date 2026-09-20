@@ -15,6 +15,12 @@ const mockScheduleNotificationAsync = jest.fn();
 jest.mock("expo-notifications", () => ({
   scheduleNotificationAsync: mockScheduleNotificationAsync,
 }));
+jest.mock("expo-constants", () => ({
+  expoConfig: { extra: { eas: { projectId: "mock-project-id" } } },
+}));
+jest.mock("expo-device", () => ({
+  isDevice: true,
+}));
 
 import { scheduleSMSApprovalNotification, SMS_APPROVAL_CATEGORY, SMS_APPROVAL_TYPE } from "../utils/notifications";
 
@@ -54,5 +60,26 @@ describe("scheduleSMSApprovalNotification", () => {
       },
       trigger: null,
     });
+  });
+
+  test("does not schedule duplicate notification if transaction was already queued", async () => {
+    const transaction = {
+      amount: 450,
+      merchant: "Zomato",
+      smsId: "sms_duplicate_1",
+      date: "2026-08-09",
+      categoryId: "food_outside" as const,
+      paymentMode: "upi" as const,
+      note: "Auto-synced: Zomato",
+    };
+
+    const first = await scheduleSMSApprovalNotification(transaction);
+    expect(first).toBe("notif_1");
+
+    // Second call with same transaction must be deduplicated
+    mockScheduleNotificationAsync.mockClear();
+    const second = await scheduleSMSApprovalNotification(transaction);
+    expect(second).toBeNull();
+    expect(mockScheduleNotificationAsync).not.toHaveBeenCalled();
   });
 });

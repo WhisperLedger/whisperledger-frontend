@@ -138,6 +138,13 @@ describe("classifyCategory — Enhanced AI Classifier", () => {
     expect(classifyCategory("₹1600 paid to bookmyshow")).toBe("entertainment");
   });
 
+  // ─── Maid & Cook ────────────────────────────────────────────────────────
+  test("classifies maid and cook expenses correctly", () => {
+    expect(classifyCategory("₹3000 paid for cook salary")).toBe("maid_cook");
+    expect(classifyCategory("₹4500 transferred to househelp cleaning")).toBe("maid_cook");
+    expect(classifyCategory("paid to maid via UPI")).toBe("maid_cook");
+  });
+
   // ─── Default (other) ─────────────────────────────────────────────────────
   test("returns other for unrecognized text", () => {
     expect(classifyCategory("payment processed successfully")).toBe("other");

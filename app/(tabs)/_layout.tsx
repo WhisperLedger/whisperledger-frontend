@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import React from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { Platform } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
 import { isDarkPalette } from "@/utils/designSystem";
@@ -17,6 +17,7 @@ export default function TabLayout() {
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.mutedForeground,
         headerShown: false,
+        tabBarHideOnKeyboard: Platform.OS === "android",
         tabBarStyle: {
           backgroundColor: isDark ? "rgba(11, 17, 16, 0.98)" : "#FFFFFF",
           borderTopWidth: 1,
@@ -42,18 +43,18 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Today",
+          title: "Home",
           tabBarIcon: ({ color, size }) => (
             <Feather name="home" size={size ?? 22} color={color} />
           ),
         }}
       />
       <Tabs.Screen
-        name="history"
+        name="analytics"
         options={{
-          title: "History",
+          title: "Analytics",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="calendar" size={size ?? 22} color={color} />
+            <Feather name="bar-chart-2" size={size ?? 22} color={color} />
           ),
         }}
       />
@@ -67,22 +68,19 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="analytics"
-        options={{
-          title: "Insights",
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="bar-chart-2" size={size ?? 22} color={color} />
-          ),
-        }}
-      />
-
-      <Tabs.Screen
         name="profile"
         options={{
           title: "Profile",
           tabBarIcon: ({ color, size }) => (
             <Feather name="user" size={size ?? 22} color={color} />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="history"
+        options={{
+          href: null,
+          title: "History",
         }}
       />
     </Tabs>

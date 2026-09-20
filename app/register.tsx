@@ -23,6 +23,7 @@ import { safeHaptics } from "@/utils/haptics";
 import { validatePassword } from "@/utils/passwordValidator";
 import { validateEmail, validateFullName, validateUsername } from "@/utils/validation";
 import FormattedErrorMessage from "@/components/FormattedErrorMessage";
+import ProAppLogo from "@/components/ProAppLogo";
 
 function translateAuthError(rawError: string | object): string {
   if (!rawError) return "An unexpected error occurred. Please try again.";
@@ -264,7 +265,7 @@ export default function RegisterScreen() {
   return (
     <View style={styles.container}>
       <LinearGradient colors={colors.text === "#f8fafc" ? ["#080A10", "#0E111F"] : ["#F8FAFC", "#F0F7FF"]} style={styles.gradient}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}>
           <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: 80 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <View style={styles.inner}>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
@@ -272,8 +273,9 @@ export default function RegisterScreen() {
                   <Feather name="arrow-left" size={20} color={colors.text === "#f8fafc" ? "#fff" : colors.primary} />
                 </TouchableOpacity>
                 <Image
-                  source={require("../assets/images/icon.png")}
-                  style={{ width: 40, height: 40, borderRadius: 12 }}
+                  source={require("@/assets/images/icon.png")}
+                  style={{ width: 42, height: 42, borderRadius: 12 }}
+                  resizeMode="cover"
                 />
               </View>
               <Text style={styles.heading}>Create account</Text>

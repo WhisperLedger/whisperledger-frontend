@@ -6,11 +6,17 @@ describe("Budget Threshold Calculations", () => {
   function computeStatus(spent: number, limit: number) {
     const remaining = Math.max(0, limit - spent);
     const percentage = limit > 0 ? (spent / limit) * 100 : 0;
+    const isExceeded = limit > 0 && spent > limit;
+    const isReached = limit > 0 && spent === limit;
     const status =
-      percentage >= 100
+      limit <= 0
+        ? "safe"
+        : isExceeded
         ? "exceeded"
-        : percentage >= 80
+        : isReached || percentage >= 100
         ? "critical"
+        : percentage >= 80
+        ? "warning"
         : percentage >= 50
         ? "warning"
         : "safe";
@@ -36,28 +42,29 @@ describe("Budget Threshold Calculations", () => {
     expect(s.percentage).toBe(60);
   });
 
-  test("returns critical at exactly 80%", () => {
+  test("returns warning at exactly 80%", () => {
     const s = computeStatus(4000, 5000);
-    expect(s.status).toBe("critical");
+    expect(s.status).toBe("warning");
     expect(s.percentage).toBe(80);
   });
 
-  test("returns critical between 80% and 100%", () => {
+  test("returns warning between 80% and 100%", () => {
     const s = computeStatus(4500, 5000);
-    expect(s.status).toBe("critical");
+    expect(s.status).toBe("warning");
     expect(s.percentage).toBe(90);
   });
 
-  test("returns exceeded at exactly 100%", () => {
+  test("returns critical (limit reached, NOT exceeded) at exactly 100%", () => {
     const s = computeStatus(5000, 5000);
-    expect(s.status).toBe("exceeded");
+    expect(s.status).not.toBe("exceeded");
+    expect(s.status).toBe("critical");
     expect(s.percentage).toBe(100);
   });
 
-  test("returns exceeded when over 100%", () => {
-    const s = computeStatus(6000, 5000);
+  test("returns exceeded strictly when over 100% (spent > limit)", () => {
+    const s = computeStatus(5001, 5000);
     expect(s.status).toBe("exceeded");
-    expect(s.percentage).toBe(120);
+    expect(s.percentage).toBeGreaterThan(100);
   });
 
   // ─── Remaining Amount ─────────────────────────────────────────────────

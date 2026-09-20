@@ -30,4 +30,16 @@ describe("expense smart input", () => {
     expect(inferPaymentMode("sent via NEFT")).toBe("netbanking");
     expect(inferPaymentMode("GPay to cafe")).toBe("upi");
   });
+
+  it("infers maid and cook category accurately", () => {
+    const draft = inferExpenseDraft("maid salary 4500 cash");
+    expect(draft.amount).toBe(4500);
+    expect(draft.categoryId).toBe("maid_cook");
+    expect(draft.paymentMode).toBe("cash");
+
+    const draft2 = inferExpenseDraft("cook 3000 via upi");
+    expect(draft2.amount).toBe(3000);
+    expect(draft2.categoryId).toBe("maid_cook");
+    expect(draft2.paymentMode).toBe("upi");
+  });
 });

@@ -16,7 +16,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AddExpenseModal from "@/components/AddExpenseModal";
 import ExpenseItem from "@/components/ExpenseItem";
+import HouseholdSpaceHeader from "@/components/HouseholdSpaceHeader";
+import HouseholdExpenseItem from "@/components/HouseholdExpenseItem";
+import HouseholdManagementModal from "@/components/HouseholdManagementModal";
 import { Expense, useExpenses } from "@/context/ExpenseContext";
+import { useHousehold } from "@/context/HouseholdContext";
+import { HouseholdExpense } from "@/types/household";
 import { useColors } from "@/hooks/useColors";
 import { appGradients, isDarkPalette, surfaceStyle, bottomInset } from "@/utils/designSystem";
 
@@ -25,8 +30,8 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-function groupByDate(expenses: Expense[]): { date: string; items: Expense[] }[] {
-  const map = new Map<string, Expense[]>();
+function groupByDate(expenses: any[]): { date: string; items: any[] }[] {
+  const map = new Map<string, any[]>();
   for (const e of expenses) {
     if (!map.has(e.date)) map.set(e.date, []);
     map.get(e.date)!.push(e);
@@ -51,16 +56,34 @@ export default function HistoryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { getExpensesForMonth, getTotalForMonth, isLoading } = useExpenses();
+  const { activeSpace, currentHousehold, householdExpenses } = useHousehold();
 
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [showAdd, setShowAdd] = useState(false);
-  const [editExpense, setEditExpense] = useState<Expense | null>(null);
+  const [showManage, setShowManage] = useState(false);
+  const [editExpense, setEditExpense] = useState<any | null>(null);
 
+  const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
+  const householdMonthExpenses = (householdExpenses || []).filter((e) =>
+    e.date.startsWith(monthPrefix)
+  );
+  const householdTotal = householdMonthExpenses.reduce(
+    (sum, e) => sum + Number(e.amount || 0),
+    0
+  );
 
-  const expenses = getExpensesForMonth(year, month);
-  const total = getTotalForMonth(year, month);
+  const expenses =
+    activeSpace === "household"
+      ? householdMonthExpenses
+      : getExpensesForMonth(year, month);
+
+  const total =
+    activeSpace === "household"
+      ? householdTotal
+      : getTotalForMonth(year, month);
+
   const grouped = groupByDate(expenses);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -219,7 +242,12 @@ export default function HistoryScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>History</Text>
+        <Text style={styles.headerTitle}>
+          {activeSpace === "household" ? "Household History" : "History"}
+        </Text>
+        <View style={{ marginTop: 12 }}>
+          <HouseholdSpaceHeader onOpenHouseholdManage={() => setShowManage(true)} />
+        </View>
       </View>
 
       <View style={styles.monthNav}>
@@ -287,10 +315,20 @@ export default function HistoryScreen() {
                 }} />
               </View>
               <View style={{ flex: 1, paddingLeft: 6 }}>
-                <ExpenseItem
-                  expense={item.expense}
-                  onEdit={(exp) => { setEditExpense(exp); setShowAdd(true); }}
-                />
+                {activeSpace === "household" ? (
+                  <HouseholdExpenseItem
+                    expense={item.expense as HouseholdExpense}
+                    onEdit={(exp) => {
+                      setEditExpense({ ...exp, isHouseholdExpense: true });
+                      setShowAdd(true);
+                    }}
+                  />
+                ) : (
+                  <ExpenseItem
+                    expense={item.expense}
+                    onEdit={(exp) => { setEditExpense(exp); setShowAdd(true); }}
+                  />
+                )}
               </View>
             </View>
           );
@@ -330,6 +368,12 @@ export default function HistoryScreen() {
         visible={showAdd}
         onClose={() => { setShowAdd(false); setEditExpense(null); }}
         editExpense={editExpense}
+        defaultIsHousehold={activeSpace === "household"}
+      />
+
+      <HouseholdManagementModal
+        visible={showManage}
+        onClose={() => setShowManage(false)}
       />
     </View>
   );

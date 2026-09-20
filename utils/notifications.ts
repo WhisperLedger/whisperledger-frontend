@@ -1,7 +1,16 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
-import { Platform } from "react-native";
-import { collection, doc, setDoc } from "firebase/firestore";
+import * as Device from "expo-device";
+import { NativeModules, Platform } from "react-native";
+import { collection, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+
+function getSmsBridge() {
+  try {
+    return NativeModules?.SmsBridge || null;
+  } catch {
+    return null;
+  }
+}
 
 import type { CategoryId, PaymentMode } from "@/context/ExpenseContext";
 import { db } from "@/lib/firebase";
@@ -12,6 +21,8 @@ export const SMS_APPROVAL_TYPE = "sms_approval";
 const DAILY_REMINDER_NOTIFICATION_ID_KEY = "@daily_reminder_notification_id";
 const PENDING_SMS_APPROVAL_IDS_KEY = "@pending_sms_approval_ids";
 const PROCESSED_SMS_APPROVAL_IDS_KEY = "@processed_sms_approval_ids";
+
+const sentNotificationCooldownMap = new Map<string, number>();
 
 export enum SMSAction {
   APPROVE = "approve",
@@ -48,7 +59,19 @@ export async function hasSMSApprovalBeenQueuedOrProcessed(smsId?: string | null)
     readStringSet(PENDING_SMS_APPROVAL_IDS_KEY),
     readStringSet(PROCESSED_SMS_APPROVAL_IDS_KEY),
   ]);
-  return pending.has(smsId) || processed.has(smsId);
+  if (pending.has(smsId) || processed.has(smsId)) return true;
+
+  const bridge = getSmsBridge();
+  if (bridge?.isSmsSeen) {
+    try {
+      const seen = await bridge.isSmsSeen(smsId);
+      if (seen) return true;
+    } catch {
+      // ignore
+    }
+  }
+
+  return false;
 }
 
 export async function markSMSApprovalProcessed(smsId?: string | null) {
@@ -63,6 +86,38 @@ export async function markSMSApprovalProcessed(smsId?: string | null) {
     writeStringSet(PENDING_SMS_APPROVAL_IDS_KEY, pending),
     writeStringSet(PROCESSED_SMS_APPROVAL_IDS_KEY, processed),
   ]);
+
+  const bridge = getSmsBridge();
+  if (bridge) {
+    try {
+      if (bridge.markSmsSeen) await bridge.markSmsSeen(smsId);
+      if (bridge.clearPendingApproval) await bridge.clearPendingApproval(smsId);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+export async function getNativePendingSMSApprovals(): Promise<any[]> {
+  const bridge = getSmsBridge();
+  if (Platform.OS !== "android" || !bridge?.getPendingApprovals) return [];
+  try {
+    const raw = await bridge.getPendingApprovals();
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function clearNativePendingSMSApproval(smsId: string): Promise<boolean> {
+  const bridge = getSmsBridge();
+  if (Platform.OS !== "android" || !bridge?.clearPendingApproval) return false;
+  try {
+    return await bridge.clearPendingApproval(smsId);
+  } catch {
+    return false;
+  }
 }
 
 function getNotificationsModule() {
@@ -125,11 +180,75 @@ export async function requestNotificationPermissions() {
   return finalStatus === "granted";
 }
 
+type PushRegistrationUser = { uid: string; name?: string; email?: string };
+
+export async function persistExpoPushToken(user: PushRegistrationUser, token: string) {
+  if (!token || !user.uid) return;
+  await setDoc(doc(db, `users/${user.uid}`), {
+    uid: user.uid,
+    name: user.name || "User",
+    email: user.email || "",
+    pushToken: token,
+    pushTokenPlatform: Platform.OS,
+    pushTokenUpdatedAt: Date.now(),
+    notificationPermission: "granted",
+    lastActive: Date.now(),
+  }, { merge: true });
+}
+
+export async function registerExpoPushToken(user: PushRegistrationUser): Promise<string | null> {
+  if (!Device.isDevice || Platform.OS === "web") return null;
+  const Notifications = getNotificationsModule();
+  if (!Notifications) return null;
+
+  await setupNotifications();
+  const permission = await Notifications.getPermissionsAsync();
+  let status = permission.status;
+  if (status !== "granted") status = (await Notifications.requestPermissionsAsync()).status;
+
+  if (status !== "granted") {
+    await setDoc(doc(db, `users/${user.uid}`), {
+      notificationPermission: status,
+      pushTokenUpdatedAt: Date.now(),
+    }, { merge: true }).catch(() => null);
+    return null;
+  }
+
+  const projectId = Constants?.expoConfig?.extra?.eas?.projectId || Constants?.easConfig?.projectId;
+  if (!projectId) throw new Error("Expo project ID is missing from app configuration.");
+
+  const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+  await persistExpoPushToken(user, token);
+  return token;
+}
+
 export async function scheduleSMSApprovalNotification(transaction: SMSApprovalPayload) {
   const Notifications = getNotificationsModule();
   if (!Notifications) return null;
 
   if (await hasSMSApprovalBeenQueuedOrProcessed(transaction.smsId)) return null;
+
+  // Cross-check alternative normalized key (date + amount) against both JS and Native stores
+  const normalizedAmount = String(transaction.amount).replace(".", "_");
+  const dateAmountKey = `sms_${transaction.date}_${normalizedAmount}`;
+  if (await hasSMSApprovalBeenQueuedOrProcessed(dateAmountKey)) return null;
+
+  const bridge = getSmsBridge();
+  if (bridge?.isSmsSeen) {
+    try {
+      const seenByNative =
+        (await bridge.isSmsSeen(transaction.smsId)) ||
+        (await bridge.isSmsSeen(dateAmountKey)) ||
+        (await bridge.isSmsSeen(`seen_${transaction.smsId}`)) ||
+        (await bridge.isSmsSeen(`seen_${dateAmountKey}`));
+      if (seenByNative) {
+        // Native broadcast receiver already posted notification in real-time, skip duplicate!
+        return null;
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   const notificationId = await Notifications.scheduleNotificationAsync({
     content: {
@@ -151,6 +270,7 @@ export async function scheduleSMSApprovalNotification(transaction: SMSApprovalPa
 
   const pending = await readStringSet(PENDING_SMS_APPROVAL_IDS_KEY);
   pending.add(transaction.smsId);
+  pending.add(dateAmountKey);
   await writeStringSet(PENDING_SMS_APPROVAL_IDS_KEY, pending);
 
   return notificationId;
@@ -186,6 +306,41 @@ export async function scheduleDailyExpenseReminder(hour: number, minute: number)
   return id;
 }
 
+export async function dismissAndClearNotification(notificationId?: string | null, userId?: string | null) {
+  if (!notificationId) return;
+  const Notifications = getNotificationsModule();
+  if (Notifications) {
+    try {
+      if (Notifications.dismissNotificationAsync) {
+        await Notifications.dismissNotificationAsync(notificationId).catch(() => null);
+      }
+      if (Notifications.cancelScheduledNotificationAsync) {
+        await Notifications.cancelScheduledNotificationAsync(notificationId).catch(() => null);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const bridge = getSmsBridge();
+  if (bridge?.clearPendingApproval) {
+    try {
+      await bridge.clearPendingApproval(notificationId);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (userId) {
+    try {
+      const ref = doc(db, `users/${userId}/notifications`, notificationId);
+      await updateDoc(ref, { read: true, resolvedAt: Date.now() }).catch(() => null);
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export async function logUserNotification(params: {
   userId: string;
   notificationId: string;
@@ -195,6 +350,13 @@ export async function logUserNotification(params: {
   data?: Record<string, any>;
   read?: boolean;
 }) {
+  // Deduplicate: If sent in the last 2 minutes, don't re-dispatch push
+  const lastSentTime = sentNotificationCooldownMap.get(params.notificationId);
+  if (lastSentTime && Date.now() - lastSentTime < 120000) {
+    return;
+  }
+  sentNotificationCooldownMap.set(params.notificationId, Date.now());
+
   const ref = doc(collection(db, `users/${params.userId}/notifications`), params.notificationId);
   await setDoc(
     ref,
@@ -204,35 +366,95 @@ export async function logUserNotification(params: {
       notificationType: params.notificationType,
       data: params.data || {},
       read: params.read ?? false,
+      pushedDirectly: true,
       createdAt: Date.now(),
     },
     { merge: true }
   );
+
+  // Direct High-Priority Push Notification over Expo Push API for instantaneous real-time delivery
+  try {
+    const userDoc = await getDoc(doc(db, "users", params.userId));
+    const pushToken = userDoc.data()?.pushToken;
+    if (
+      pushToken &&
+      typeof pushToken === "string" &&
+      (pushToken.startsWith("ExpoPushToken") || pushToken.startsWith("ExponentPushToken"))
+    ) {
+      fetch("https://exp.host/--/api/v2/push/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          to: pushToken,
+          sound: "default",
+          title: params.title,
+          body: params.body,
+          priority: "high",
+          channelId: "default",
+          _displayInForeground: true,
+          data: {
+            ...(params.data || {}),
+            notificationType: params.notificationType,
+            firestoreNotifId: params.notificationId,
+          },
+        }),
+      }).catch((e) => console.warn("[Push] Direct push dispatch error:", e));
+    }
+  } catch (pushErr) {
+    console.warn("[Push] Failed to fetch recipient push token for direct push:", pushErr);
+  }
 }
 
 /**
  * Sends a push notification when a budget threshold is crossed.
- * Called automatically by BudgetContext when spending hits 50%, 80%, or 100%.
+ * Called automatically by BudgetContext when spending hits 50%, 80%, 100%, or >100%.
  */
 export async function sendBudgetAlert(
   categoryName: string,
   percentage: number,
   remaining: number,
-  limit: number
+  limit: number,
+  householdName?: string
 ): Promise<void> {
   const Notifications = getNotificationsModule();
   if (!Notifications) return;
 
-  const emoji = percentage >= 100 ? "🚨" : percentage >= 80 ? "⚠️" : "💡";
-  const title =
-    percentage >= 100
-      ? `${emoji} Budget Exceeded: ${categoryName}`
-      : `${emoji} Budget Alert: ${categoryName}`;
+  // 24-Hour Cooldown & Deduplication per category milestone
+  const roundedPercent = Math.round(percentage);
+  const cooldownKey = `@budget_alert_cooldown_${householdName || "personal"}_${categoryName}_${roundedPercent}`;
+  try {
+    const lastSent = await AsyncStorage.getItem(cooldownKey);
+    if (lastSent) {
+      const lastTime = parseInt(lastSent, 10);
+      // If sent in the last 20 hours, skip sending duplicate
+      if (Date.now() - lastTime < 20 * 60 * 60 * 1000) {
+        return;
+      }
+    }
+  } catch {
+    // continue
+  }
 
-  const body =
-    percentage >= 100
-      ? `You have exceeded your ₹${limit.toLocaleString("en-IN")} budget for ${categoryName}.`
-      : `You've used ${Math.round(percentage)}% of your ${categoryName} budget. ₹${remaining.toLocaleString("en-IN")} remaining.`;
+  const isExceeded = percentage > 100;
+  const isLimitReached = percentage === 100 || (percentage >= 100 && !isExceeded);
+  const isCritical = percentage >= 80 && percentage < 100;
+
+  const prefix = householdName ? `🏠 [${householdName}] ` : "";
+  const emoji = isExceeded ? "🚨" : isLimitReached ? "⚠️" : isCritical ? "⚡" : "💡";
+  const title = isExceeded
+    ? `${emoji} ${prefix}Budget Exceeded: ${categoryName}`
+    : isLimitReached
+    ? `${emoji} ${prefix}Budget Limit Reached: ${categoryName}`
+    : `${emoji} ${prefix}Budget Alert: ${categoryName}`;
+
+  const body = isExceeded
+    ? `${householdName ? `Flat "${householdName}" has` : "You have"} exceeded the ₹${limit.toLocaleString("en-IN")} budget for ${categoryName} by ₹${Math.abs(remaining).toLocaleString("en-IN")}.`
+    : isLimitReached
+    ? `${householdName ? `Flat "${householdName}" has` : "You have"} reached 100% of the ₹${limit.toLocaleString("en-IN")} budget for ${categoryName} (₹0 remaining).`
+    : `${householdName ? `Flat "${householdName}" has` : "You've"} used ${roundedPercent}% of the ${categoryName} budget. ₹${remaining.toLocaleString("en-IN")} remaining.`;
 
   try {
     await Notifications.scheduleNotificationAsync({
@@ -253,6 +475,8 @@ export async function sendBudgetAlert(
       },
       trigger: null,
     });
+
+    await AsyncStorage.setItem(cooldownKey, Date.now().toString());
   } catch (e) {
     console.warn("[Notifications] Budget alert failed:", e);
   }

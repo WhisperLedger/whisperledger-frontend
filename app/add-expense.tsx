@@ -438,26 +438,26 @@ export default function AddExpenseScreen() {
             />
           )}
         </ScrollView>
-      </KeyboardAvoidingView>
 
-      {/* Save Button */}
-      <TouchableOpacity
-        style={[
-          styles.saveBtn,
-          {
-            backgroundColor: selectedCat.color,
-            opacity: saving || !amount || isFutureISODate(date) ? 0.5 : 1,
-          },
-        ]}
-        onPress={handleSave}
-        disabled={saving || !amount || isFutureISODate(date)}
-        activeOpacity={0.85}
-      >
-        <Feather name={editExpense ? "check" : "plus"} size={18} color="#fff" />
-        <Text style={styles.saveBtnText}>
-          {saving ? "Saving..." : editExpense ? "Update Expense" : "Save Expense"}
-        </Text>
-      </TouchableOpacity>
+        {/* Save Button */}
+        <TouchableOpacity
+          style={[
+            styles.saveBtn,
+            {
+              backgroundColor: selectedCat.color,
+              opacity: saving || !amount || isFutureISODate(date) ? 0.5 : 1,
+            },
+          ]}
+          onPress={handleSave}
+          disabled={saving || !amount || isFutureISODate(date)}
+          activeOpacity={0.85}
+        >
+          <Feather name={editExpense ? "check" : "plus"} size={18} color="#fff" />
+          <Text style={styles.saveBtnText}>
+            {saving ? "Saving..." : editExpense ? "Update Expense" : "Save Expense"}
+          </Text>
+        </TouchableOpacity>
+      </KeyboardAvoidingView>
     </View>
   );
 }

@@ -1,13 +1,20 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
-import type { Expense } from "@/context/ExpenseContext";
+import type { Expense, PaymentMode } from "@/context/ExpenseContext";
 import {
+  getNativePendingSMSApprovals,
   hasSMSApprovalBeenQueuedOrProcessed,
   markSMSApprovalProcessed,
   scheduleSMSApprovalNotification,
 } from "@/utils/notifications";
-import { fetchAndParseSMS, hasSmsPermission, isSmsAutoSyncAvailable } from "@/utils/smsParser";
+import {
+  classifyCategory,
+  fetchAndParseSMS,
+  hasSmsPermission,
+  isSmsAutoSyncAvailable,
+  type ParsedSMS,
+} from "@/utils/smsParser";
 
 const AUTO_SYNC_ENABLED_KEY = "@auto_sync_enabled";
 const LAST_SMS_SYNC_TIME_KEY = "@last_sms_sync_time";
@@ -28,6 +35,28 @@ type SyncResult = {
   queued: number;
   skipped: number;
 };
+
+let isSyncingSMS = false;
+
+export async function syncNativePendingApprovals(): Promise<ParsedSMS[]> {
+  if (Platform.OS !== "android") return [];
+  try {
+    const nativeList = await getNativePendingSMSApprovals();
+    if (!Array.isArray(nativeList) || nativeList.length === 0) return [];
+
+    return nativeList.map((item: any) => ({
+      amount: Number(item.amount || 0),
+      merchant: String(item.merchant || "Unknown Merchant"),
+      date: String(item.date || new Date().toISOString().split("T")[0]),
+      categoryId: classifyCategory(String(item.merchant || "")),
+      paymentMode: "none" as PaymentMode,
+      note: `Auto-synced: ${item.merchant || "Transaction"}`,
+      smsId: String(item.smsId || `sms_${item.timestamp || Date.now()}_${item.amount}`),
+    }));
+  } catch {
+    return [];
+  }
+}
 
 async function readStringSet(key: string): Promise<Set<string>> {
   try {
@@ -94,54 +123,82 @@ export async function queueSMSApprovalNotifications(options: SyncOptions = {}): 
     return { parsed: 0, queued: 0, skipped: 0 };
   }
 
-  const permissionGranted = await hasSmsPermission();
-  if (!permissionGranted) {
+  // Mutex lock to prevent duplicate parallel executions
+  if (isSyncingSMS) {
     return { parsed: 0, queued: 0, skipped: 0 };
   }
+  isSyncingSMS = true;
 
-  const minDateMs = await getMinDateMs(options.initialLookback);
-  const parsedExpenses = await fetchAndParseSMS(minDateMs);
-  if (parsedExpenses.length === 0) {
-    return { parsed: 0, queued: 0, skipped: 0 };
-  }
-
-  const userId = options.userId || (await getCachedUserId());
-  const deletedIds = await readStringSet(DELETED_SMS_IDS_KEY);
-  const cachedSmsIds = await getCachedExpenseSmsIds(userId);
-  const existingSmsIds = new Set<string>(cachedSmsIds);
-  for (const expense of options.existingExpenses || []) {
-    if (expense.smsId) existingSmsIds.add(expense.smsId);
-  }
-
-  let queued = 0;
-  let skipped = 0;
-
-  for (const expense of parsedExpenses) {
-    if (!expense.smsId) {
-      skipped += 1;
-      continue;
+  try {
+    const permissionGranted = await hasSmsPermission();
+    if (!permissionGranted) {
+      return { parsed: 0, queued: 0, skipped: 0 };
     }
 
-    if (
-      deletedIds.has(expense.smsId) ||
-      existingSmsIds.has(expense.smsId) ||
-      (await hasSMSApprovalBeenQueuedOrProcessed(expense.smsId))
-    ) {
-      skipped += 1;
-      continue;
+    const minDateMs = await getMinDateMs(options.initialLookback);
+    const parsedExpenses = await fetchAndParseSMS(minDateMs);
+    if (parsedExpenses.length === 0) {
+      return { parsed: 0, queued: 0, skipped: 0 };
     }
 
-    const notificationId = await scheduleSMSApprovalNotification(expense);
-    if (notificationId) {
-      queued += 1;
-    } else {
-      skipped += 1;
+    const userId = options.userId || (await getCachedUserId());
+    const deletedIds = await readStringSet(DELETED_SMS_IDS_KEY);
+    const cachedSmsIds = await getCachedExpenseSmsIds(userId);
+    const existingSmsIds = new Set<string>(cachedSmsIds);
+    for (const expense of options.existingExpenses || []) {
+      if (expense.smsId) existingSmsIds.add(expense.smsId);
     }
+
+    let queued = 0;
+    let skipped = 0;
+
+    for (const expense of parsedExpenses) {
+      if (!expense.smsId) {
+        skipped += 1;
+        continue;
+      }
+
+      if (deletedIds.has(expense.smsId) || existingSmsIds.has(expense.smsId)) {
+        skipped += 1;
+        continue;
+      }
+
+      // Check if an expense with the exact same amount and date already exists in the user's ledger
+      const isAlreadyInLedger = (options.existingExpenses || []).some(
+        (e) => e.date === expense.date && Math.abs(e.amount - expense.amount) < 0.01
+      );
+
+      if (isAlreadyInLedger) {
+        if (expense.smsId) {
+          await markSMSApprovalProcessed(expense.smsId);
+        }
+        skipped += 1;
+        continue;
+      }
+
+      const dateAmountKey = `sms_${expense.date}_${String(expense.amount).replace(".", "_")}`;
+      if (
+        (await hasSMSApprovalBeenQueuedOrProcessed(expense.smsId)) ||
+        (await hasSMSApprovalBeenQueuedOrProcessed(dateAmountKey))
+      ) {
+        skipped += 1;
+        continue;
+      }
+
+      const notificationId = await scheduleSMSApprovalNotification(expense);
+      if (notificationId) {
+        queued += 1;
+      } else {
+        skipped += 1;
+      }
+    }
+
+    await AsyncStorage.setItem(LAST_SMS_SYNC_TIME_KEY, Date.now().toString());
+
+    return { parsed: parsedExpenses.length, queued, skipped };
+  } finally {
+    isSyncingSMS = false;
   }
-
-  await AsyncStorage.setItem(LAST_SMS_SYNC_TIME_KEY, Date.now().toString());
-
-  return { parsed: parsedExpenses.length, queued, skipped };
 }
 
 function getBackgroundModules() {
