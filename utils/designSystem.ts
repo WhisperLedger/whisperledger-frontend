@@ -22,11 +22,11 @@ export function appGradients(colors: AppColors) {
   const dark = isDarkPalette(colors);
   return {
     page: dark
-      ? (["#080A10", "#0E111F"] as const)
-      : (["#F8FAFC", "#F0F7FF"] as const),
+      ? (["#0F172A", "#0F172A"] as const)
+      : (["#F8FAFC", "#F8FAFC"] as const),
     hero: dark
-      ? (["#0B1224", "#0E1830", "#080A10"] as const)
-      : (["#F0F7FF", "#E0EEFF", "#FFFFFF"] as const),
+      ? (["#111827", "#111827", "#111827"] as const)
+      : (["#FFFFFF", "#FFFFFF", "#FFFFFF"] as const),
     royalHero: (["#1E3A8A", "#2563EB", "#3882FF"] as const),
     primary: dark
       ? (["#3882FF", "#2563EB"] as const)
@@ -48,14 +48,14 @@ export function surfaceStyle(colors: AppColors, elevated = true): ViewStyle {
   const dark = isDarkPalette(colors);
   return {
     backgroundColor: colors.card,
-    borderRadius: 22,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: isDarkPalette(colors) ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: elevated ? 8 : 2 },
-    shadowOpacity: dark ? 0.25 : elevated ? 0.06 : 0.02,
-    shadowRadius: elevated ? 16 : 8,
-    elevation: elevated ? 4 : 1,
+    shadowOffset: { width: 0, height: elevated ? 4 : 1 },
+    shadowOpacity: dark ? 0.16 : elevated ? 0.04 : 0.01,
+    shadowRadius: elevated ? 10 : 4,
+    elevation: elevated ? 2 : 1,
   };
 }
 

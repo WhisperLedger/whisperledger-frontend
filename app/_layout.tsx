@@ -9,7 +9,6 @@ import { Feather } from "@expo/vector-icons";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { router, Stack, useSegments, useRootNavigationState } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import Constants from "expo-constants";
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, View, LogBox, Image, Animated, Dimensions, StyleSheet, Text, Easing } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -40,24 +39,27 @@ import {
   DAILY_REMINDER_TYPE,
   logUserNotification,
   markSMSApprovalProcessed,
-  requestNotificationPermissions,
+  registerExpoPushToken,
   setupNotifications,
   SMSAction,
   SMS_APPROVAL_TYPE,
 } from "@/utils/notifications";
 import { markSmsIgnored, registerSMSBackgroundSync } from "@/utils/smsSync";
-import { classifyCategory } from "@/utils/smsParser";
-import { collection, doc, getDocs, limit, query, setDoc, updateDoc, where } from "firebase/firestore";
+import { saveSmsExpense } from "@/utils/smsExpense";
+import { collection, doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import * as Device from "expo-device";
 
-// Initialize Sentry for crash reporting and performance monitoring
-Sentry.init({
-  dsn: "https://your-sentry-dsn@o0.ingest.sentry.io/0", // REPLACE with your actual DSN from sentry.io
-  debug: false,
-  tracesSampleRate: 0.2, // 20% of transactions for performance profiling
-  environment: __DEV__ ? "development" : "production",
-});
+// Crash reporting is opt-in at deploy time. A placeholder DSN creates noisy,
+// unactionable telemetry and must never ship.
+const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
+if (sentryDsn) {
+  Sentry.init({
+    dsn: sentryDsn,
+    debug: false,
+    tracesSampleRate: 0.2,
+    environment: __DEV__ ? "development" : "production",
+  });
+}
 
 
 function isPermissionDeniedError(error: unknown) {
@@ -93,18 +95,6 @@ if (Notifications) {
 }
 
 const queryClient = new QueryClient();
-
-function smsExpenseDocId(smsId: string) {
-  return `sms_${smsId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120)}`;
-}
-
-async function hasExpenseForSms(userId: string, smsId?: string | null) {
-  if (!smsId) return false;
-  const existing = await getDocs(
-    query(collection(db, `users/${userId}/expenses`), where("smsId", "==", smsId), limit(1))
-  );
-  return !existing.empty;
-}
 
 async function markLinkedNotificationRead(userId: string, data: Record<string, any>) {
   if (!data.firestoreNotifId) return;
@@ -162,7 +152,6 @@ function RootLayoutNav() {
 
   useEffect(() => {
     setupNotifications();
-    requestNotificationPermissions().catch(() => null);
 
     // Check for cold-launch notification deep links immediately on startup
     if (Notifications) {
@@ -193,34 +182,11 @@ function RootLayoutNav() {
         return;
       }
 
-      // Emulator / simulator — register a mock token so admin dashboard shows the user
-      if (!Device.isDevice) {
-        if (user) {
-          try {
-            await setDoc(doc(db, `users/${user.uid}`), {
-              uid: user.uid,
-              name: user.name,
-              email: user.email,
-              pushToken: `mock_emulator_token_${user.uid.slice(0, 5)}`,
-              lastActive: Date.now(),
-            }, { merge: true });
-          } catch (err) {
-            console.warn("[Push] Failed to register emulator mock token:", err);
-          }
-        }
-        return;
-      }
-
-      // Request permission first
+      // Do not interrupt someone at app launch. Permission is requested from an
+      // explicit notification feature such as reminders or SMS review.
       try {
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
         if (existingStatus !== "granted") {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
-        }
-        if (finalStatus !== "granted") {
-          console.warn("[Push] Notification permission not granted");
           return;
         }
       } catch (permErr: any) {
@@ -228,26 +194,9 @@ function RootLayoutNav() {
         return;
       }
 
-      // Get Expo push token — this is what the admin dashboard and Expo Push API need.
-      // getExpoPushTokenAsync works on real devices once Firebase is initialized natively.
+      // Register a token only after a user has already granted permission.
       try {
-        const projectId =
-          Constants?.expoConfig?.extra?.eas?.projectId ||
-          Constants?.easConfig?.projectId;
-        const token = (
-          await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined)
-        ).data;
-
-        if (user && token) {
-          await setDoc(doc(db, `users/${user.uid}`), {
-            uid: user.uid,
-            name: user.name,
-            email: user.email,
-            pushToken: token,
-            lastActive: Date.now(),
-          }, { merge: true });
-          console.log("[Push] Expo push token registered ✅", token.slice(0, 40));
-        }
+        if (user) await registerExpoPushToken(user);
       } catch (err: any) {
         // Log quietly — no red box in dev mode
         console.warn("[Push] Token registration failed (will retry on next launch):", err?.message);
@@ -329,18 +278,15 @@ function RootLayoutNav() {
       if (isSMSApprovalAction && user) {
         if (actionIdentifier === SMSAction.APPROVE) {
           try {
-            if (!(await hasExpenseForSms(user.uid, String(smsId || "")))) {
-              await setDoc(doc(db, `users/${user.uid}/expenses/${smsExpenseDocId(String(smsId || Date.now()))}`), {
-                amount: Number(amount || 0),
-                note: data.note || `Auto-synced from SMS: ${merchant}`,
-                categoryId: data.categoryId || classifyCategory(String(merchant || "")),
-                paymentMode: data.paymentMode || "none",
-                date: data.date || new Date().toISOString().split("T")[0],
-                smsId,
-                merchant: merchant || "Unknown Merchant",
-                createdAt: Date.now(),
-              });
-            }
+            await saveSmsExpense(user.uid, {
+              amount: Number(amount || 0),
+              note: data.note || `Auto-synced from SMS: ${merchant}`,
+              categoryId: data.categoryId || "other",
+              paymentMode: data.paymentMode || "none",
+              date: data.date || new Date().toISOString().split("T")[0],
+              smsId: String(smsId || ""),
+              merchant: merchant || "Unknown Merchant",
+            });
             await markSMSApprovalProcessed(String(smsId || ""));
             console.log("Expense approved and added to Firestore");
           } catch (e) {

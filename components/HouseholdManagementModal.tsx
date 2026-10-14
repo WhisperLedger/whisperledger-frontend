@@ -272,7 +272,7 @@ export default function HouseholdManagementModal({ visible, onClose }: Props) {
 
               <View style={{ alignItems: "center", gap: 4 }}>
                 <Text style={[styles.successTitle, { color: colors.foreground }]}>
-                  Flat Created Successfully! 🎉
+                  Household created
                 </Text>
                 <Text style={[styles.successSub, { color: colors.mutedForeground }]}>
                   "{createdHouseholdSuccess.name}" is ready for splitting
@@ -332,7 +332,7 @@ export default function HouseholdManagementModal({ visible, onClose }: Props) {
                 }}
                 activeOpacity={0.85}
               >
-                <Text style={styles.startSplittingText}>Go to Household Dashboard 🚀</Text>
+                <Text style={styles.startSplittingText}>Open shared spending</Text>
               </TouchableOpacity>
             </View>
           ) : (

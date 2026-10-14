@@ -24,6 +24,8 @@ import { queueSMSApprovalNotifications, registerSMSBackgroundSync } from "@/util
 import { markSMSApprovalProcessed, dismissAndClearNotification } from "@/utils/notifications";
 
 import { db } from "../lib/firebase";
+import { api } from "../lib/api";
+import { runtimeConfig } from "@/config/runtime";
 import { useAuth } from "./AuthContext";
 
 export type PaymentMode = "none" | "cash" | "upi" | "card" | "netbanking";
@@ -133,6 +135,40 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    if (runtimeConfig.dataBackend === "api") {
+      api.listExpenses({ limit: 500 })
+        .then(async (res) => {
+          if (res.success && Array.isArray(res.data)) {
+            const loaded: Expense[] = res.data.map((item: any) => ({
+              id: item.id,
+              amount: Number(item.amount),
+              categoryId: (item.category || "other") as CategoryId,
+              merchant: item.merchant,
+              note: item.note || item.merchant || "Expense",
+              paymentMode: (item.payment_method?.toLowerCase() || "upi") as PaymentMode,
+              date: item.date ? item.date.split("T")[0] : new Date().toISOString().split("T")[0],
+              createdAt: item.created_at ? new Date(item.created_at).getTime() : Date.now(),
+              householdId: item.household_id || undefined,
+              isHouseholdSplitShare: item.is_shared || false,
+            }));
+            setExpenses(loaded);
+            await AsyncStorage.setItem(`@expenses_${user.uid}`, JSON.stringify(loaded)).catch(() => null);
+          } else {
+            const cached = await AsyncStorage.getItem(`@expenses_${user.uid}`);
+            if (cached) setExpenses(JSON.parse(cached));
+          }
+        })
+        .catch(async (e) => {
+          console.warn("⚠️ API listExpenses error, using local cache:", e);
+          const cached = await AsyncStorage.getItem(`@expenses_${user.uid}`);
+          if (cached) setExpenses(JSON.parse(cached));
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+      return;
+    }
+
     const q = query(
       collection(db, `users/${user.uid}/expenses`),
       orderBy("createdAt", "desc")
@@ -204,6 +240,42 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
 
   const addExpense = useCallback(async (expense: Omit<Expense, "id" | "createdAt">) => {
     if (!user) return;
+
+    if (runtimeConfig.dataBackend === "api") {
+      const tempId = "temp_" + Date.now();
+      const newExpense: Expense = { id: tempId, ...expense, createdAt: Date.now() };
+      setExpenses((prev) => [newExpense, ...prev]);
+
+      try {
+        const cached = await AsyncStorage.getItem(`@expenses_${user.uid}`);
+        const list = cached ? JSON.parse(cached) : [];
+        await AsyncStorage.setItem(`@expenses_${user.uid}`, JSON.stringify([newExpense, ...list]));
+
+        if (newExpense.smsId) {
+          await markSMSApprovalProcessed(newExpense.smsId);
+          await dismissAndClearNotification(newExpense.smsId, user.uid);
+        }
+
+        const res = await api.createExpense({
+          amount: expense.amount,
+          category: expense.categoryId,
+          merchant: expense.merchant || expense.note || "Expense",
+          outflow_type: expense.householdId ? "shared_household" : "true_personal",
+          payment_method: expense.paymentMode || "UPI",
+          note: expense.note,
+          date: expense.date ? new Date(expense.date).toISOString() : new Date().toISOString(),
+          household_id: expense.householdId,
+        });
+
+        if (res.success && res.data?.id) {
+          setExpenses((prev) => prev.map((e) => (e.id === tempId ? { ...e, id: res.data!.id } : e)));
+        }
+      } catch (err) {
+        console.error("API createExpense error:", err);
+      }
+      return;
+    }
+
     const docRef = doc(collection(db, `users/${user.uid}/expenses`));
     const docId = docRef.id;
     const newExpense: Expense = { id: docId, ...expense, createdAt: Date.now() };
@@ -224,12 +296,23 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
       console.error("Local storage save failed:", err);
     }
 
-    // Background Firestore Sync using deterministic doc reference
+    // A confirmed add must persist remotely. Roll back optimistic state if it
+    // cannot be written, rather than showing a record that only exists locally.
     try {
       const { id, ...firebaseData } = newExpense;
       await setDoc(docRef, firebaseData);
     } catch (e) {
-      console.warn("⚠️ Background Firestore Sync failed (offline or permission denied):", e);
+      setExpenses((prev) => prev.filter((item) => item.id !== docId));
+      try {
+        const cached = await AsyncStorage.getItem(`@expenses_${user.uid}`);
+        if (cached) {
+          const list = JSON.parse(cached) as Expense[];
+          await AsyncStorage.setItem(`@expenses_${user.uid}`, JSON.stringify(list.filter((item) => item.id !== docId)));
+        }
+      } catch {
+        // The remote write error is the actionable failure.
+      }
+      throw e;
     }
   }, [user]);
 
@@ -263,7 +346,8 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
       console.error("Local storage batch save failed:", err);
     }
 
-    // Sync to Firestore in background using deterministic doc references
+    // Keep a batch all-or-nothing from the user's point of view. If the remote
+    // write fails, remove the optimistic additions and report the failure.
     try {
       const batchPromises = preparedItems.map(item => {
         const { id, ...firebaseData } = item;
@@ -271,16 +355,43 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
       });
       await Promise.all(batchPromises);
     } catch (e) {
-      console.warn("⚠️ Background Firestore Batch Sync failed:", e);
+      const newIds = new Set(preparedItems.map((item) => item.id));
+      setExpenses((prev) => prev.filter((item) => !newIds.has(item.id)));
+      try {
+        const cached = await AsyncStorage.getItem(`@expenses_${user.uid}`);
+        if (cached) {
+          const list = JSON.parse(cached) as Expense[];
+          await AsyncStorage.setItem(`@expenses_${user.uid}`, JSON.stringify(list.filter((item) => !newIds.has(item.id))));
+        }
+      } catch {
+        // The remote write error is the actionable failure.
+      }
+      throw e;
     }
   }, [user]);
 
   const deleteExpense = useCallback(async (id: string) => {
     if (!user) return;
+    const previousExpense = expenses.find((expense) => expense.id === id);
+    if (!previousExpense) throw new Error("Expense not found");
     
     // Optimistic UI Update
     setExpenses((prev) => prev.filter((e) => e.id !== id));
     
+    if (runtimeConfig.dataBackend === "api") {
+      try {
+        const cached = await AsyncStorage.getItem(`@expenses_${user.uid}`);
+        if (cached) {
+          const list = JSON.parse(cached) as Expense[];
+          await AsyncStorage.setItem(`@expenses_${user.uid}`, JSON.stringify(list.filter(e => e.id !== id)));
+        }
+        await api.request(`/expenses/${id}`, { method: "DELETE" });
+      } catch (e) {
+        console.error("API delete expense error:", e);
+      }
+      return;
+    }
+
     try {
       const expToDelete = expenses.find(e => e.id === id);
       if (expToDelete?.smsId) {
@@ -301,19 +412,48 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
       console.error("Local storage deletion/blacklist failed:", e);
     }
 
-    // Background Firestore Sync
+    // A delete is irreversible from the UI. Restore the entry if the remote
+    // delete is rejected or the device is offline.
     try {
       await deleteDoc(doc(db, `users/${user.uid}/expenses`, id));
     } catch (e) {
-      console.warn("⚠️ Background Firestore deletion failed:", e);
+      setExpenses((prev) => [previousExpense, ...prev]);
+      try {
+        const cached = await AsyncStorage.getItem(`@expenses_${user.uid}`);
+        if (cached) {
+          const list = JSON.parse(cached) as Expense[];
+          if (!list.some((expense) => expense.id === id)) {
+            await AsyncStorage.setItem(`@expenses_${user.uid}`, JSON.stringify([previousExpense, ...list]));
+          }
+        }
+      } catch {
+        // The remote write error is the actionable failure.
+      }
+      throw e;
     }
   }, [user, expenses]);
 
   const updateExpense = useCallback(async (id: string, updates: Partial<Omit<Expense, "id" | "createdAt">>) => {
     if (!user) return;
+    const previousExpense = expenses.find((expense) => expense.id === id);
+    if (!previousExpense) throw new Error("Expense not found");
     
     // Optimistic UI Update
     setExpenses((prev) => prev.map((e) => e.id === id ? { ...e, ...updates } : e));
+
+    if (runtimeConfig.dataBackend === "api") {
+      try {
+        const cached = await AsyncStorage.getItem(`@expenses_${user.uid}`);
+        if (cached) {
+          const list = JSON.parse(cached) as Expense[];
+          const updatedList = list.map(e => e.id === id ? { ...e, ...updates } : e);
+          await AsyncStorage.setItem(`@expenses_${user.uid}`, JSON.stringify(updatedList));
+        }
+      } catch (e) {
+        console.error("Local storage update failed:", e);
+      }
+      return;
+    }
     
     try {
       const cached = await AsyncStorage.getItem(`@expenses_${user.uid}`);
@@ -326,13 +466,27 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
       console.error("Local storage update failed:", e);
     }
 
-    // Background Firestore Sync
+    // A confirmed edit must persist remotely. If that fails, roll the local
+    // optimistic update back and let the caller show an honest failure state.
     try {
       await updateDoc(doc(db, `users/${user.uid}/expenses`, id), updates);
     } catch (e) {
-      console.warn("⚠️ Background Firestore update failed:", e);
+      setExpenses((prev) => prev.map((expense) => expense.id === id ? previousExpense : expense));
+      try {
+        const cached = await AsyncStorage.getItem(`@expenses_${user.uid}`);
+        if (cached) {
+          const list = JSON.parse(cached) as Expense[];
+          await AsyncStorage.setItem(
+            `@expenses_${user.uid}`,
+            JSON.stringify(list.map((expense) => expense.id === id ? previousExpense : expense))
+          );
+        }
+      } catch {
+        // The Firestore error is the actionable failure; cache recovery can retry later.
+      }
+      throw e;
     }
-  }, [user]);
+  }, [user, expenses]);
 
   const getExpensesForDate = useCallback((date: string) => {
     return expenses.filter((e) => e.date === date);

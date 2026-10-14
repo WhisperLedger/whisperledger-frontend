@@ -19,6 +19,8 @@ import {
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useAuth } from "./AuthContext";
 import { db } from "../lib/firebase";
+import { api } from "../lib/api";
+import { runtimeConfig } from "@/config/runtime";
 import { logUserNotification, dismissAndClearNotification } from "@/utils/notifications";
 import {
   DebtSummary,
@@ -112,6 +114,57 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       setCurrentHouseholdState(null);
       setHouseholdExpenses([]);
       setIsLoading(false);
+      return;
+    }
+
+    if (runtimeConfig.dataBackend === "api") {
+      api.getHouseholdMe()
+        .then(async (res) => {
+          if (res.success && res.data) {
+            const hData: any = res.data;
+            const h: Household = {
+              id: hData.id,
+              name: hData.name,
+              inviteCode: hData.invite_code,
+              createdBy: hData.created_by,
+              createdByName: "Admin",
+              createdAt: hData.created_at ? new Date(hData.created_at).getTime() : Date.now(),
+              memberUids: hData.members ? hData.members.map((m: any) => m.user_id) : [user.uid],
+              members: hData.members
+                ? hData.members.reduce((acc: Record<string, HouseholdMember>, m: any) => {
+                    acc[m.user_id] = {
+                      uid: m.user_id,
+                      name: m.full_name || "Member",
+                      email: m.email || "",
+                      role: m.role || "member",
+                      joinedAt: Date.now(),
+                    };
+                    return acc;
+                  }, {} as Record<string, HouseholdMember>)
+                : {
+                    [user.uid]: {
+                      uid: user.uid,
+                      name: user.name,
+                      email: user.email,
+                      role: "admin",
+                      joinedAt: Date.now(),
+                    },
+                  },
+            };
+            setHouseholds([h]);
+            setCurrentHouseholdState(h);
+            await AsyncStorage.setItem(`@households_${user.uid}`, JSON.stringify([h])).catch(() => null);
+          } else {
+            setHouseholds([]);
+            setCurrentHouseholdState(null);
+          }
+        })
+        .catch((e) => {
+          console.warn("⚠️ API getHouseholdMe error:", e);
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
       return;
     }
 
@@ -223,6 +276,40 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       const trimmedName = name.trim();
       if (!trimmedName) return { success: false, error: "Household name is required" };
 
+      if (runtimeConfig.dataBackend === "api") {
+        try {
+          const res = await api.createHousehold(trimmedName);
+          if (res.success && res.data) {
+            const hData: any = res.data;
+            const newHousehold: Household = {
+              id: hData.id,
+              name: hData.name,
+              inviteCode: hData.invite_code,
+              createdBy: hData.created_by,
+              createdAt: Date.now(),
+              memberUids: [user.uid],
+              members: {
+                [user.uid]: {
+                  uid: user.uid,
+                  name: user.name || "User",
+                  email: user.email || "",
+                  avatarUri: user.avatarUri || "",
+                  role: "admin",
+                  joinedAt: Date.now(),
+                },
+              },
+            };
+            setCurrentHousehold(newHousehold);
+            setHouseholds((prev) => [newHousehold, ...prev.filter((h) => h.id !== hData.id)]);
+            setActiveSpaceState("household");
+            return { success: true, household: newHousehold };
+          }
+          return { success: false, error: res.error?.message || "Failed to create household" };
+        } catch (err: any) {
+          return { success: false, error: err.message };
+        }
+      }
+
       const inviteCode = generateInviteCode();
       const memberInfo: HouseholdMember = {
         uid: user.uid,
@@ -270,6 +357,39 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       if (!user) return { success: false, error: "Not logged in" };
       const cleanCode = inviteCode.trim().toUpperCase();
       if (!cleanCode) return { success: false, error: "Please enter an invite code" };
+
+      if (runtimeConfig.dataBackend === "api") {
+        try {
+          const res = await api.joinHousehold(cleanCode);
+          if (res.success && res.data) {
+            const hData: any = res.data;
+            const joinedHousehold: Household = {
+              id: hData.id,
+              name: hData.name,
+              inviteCode: hData.invite_code,
+              createdBy: hData.created_by,
+              createdAt: Date.now(),
+              memberUids: [user.uid],
+              members: {
+                [user.uid]: {
+                  uid: user.uid,
+                  name: user.name || "User",
+                  email: user.email || "",
+                  role: "member",
+                  joinedAt: Date.now(),
+                },
+              },
+            };
+            setCurrentHousehold(joinedHousehold);
+            setHouseholds((prev) => [joinedHousehold, ...prev.filter((h) => h.id !== hData.id)]);
+            setActiveSpaceState("household");
+            return { success: true, household: joinedHousehold };
+          }
+          return { success: false, error: res.error?.message || "Invalid invite code or already in household" };
+        } catch (err: any) {
+          return { success: false, error: err.message };
+        }
+      }
 
       let targetDocId: string | null = null;
       let data: Household | null = null;

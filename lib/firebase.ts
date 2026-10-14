@@ -4,15 +4,24 @@ import { initializeAuth, getReactNativePersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// TODO: Replace with your actual Firebase config from the Firebase Console
-// Project Settings -> General -> Your apps -> Web App
+const firebaseEnvironment = {
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+};
+
 const firebaseConfig = {
-  apiKey: "AIzaSyDyWPFvO_MDqJbRdMjIv0WUJP4wO93dFnA",
-  authDomain: "whisperledger-94715.firebaseapp.com",
-  projectId: "whisperledger-94715",
-  storageBucket: "whisperledger-94715.firebasestorage.app",
-  messagingSenderId: "1064792050841",
-  appId: "1:1064792050841:web:9e30d27d9f6aa2e4fe3c08" // Inferred web ID
+  // Firebase web configuration is public by design. Environment values allow
+  // staging/production projects to be switched without source edits.
+  apiKey: firebaseEnvironment.apiKey || "AIzaSyDyWPFvO_MDqJbRdMjIv0WUJP4wO93dFnA",
+  authDomain: firebaseEnvironment.authDomain || "whisperledger-94715.firebaseapp.com",
+  projectId: firebaseEnvironment.projectId || "whisperledger-94715",
+  storageBucket: firebaseEnvironment.storageBucket || "whisperledger-94715.firebasestorage.app",
+  messagingSenderId: firebaseEnvironment.messagingSenderId || "1064792050841",
+  appId: firebaseEnvironment.appId || "1:1064792050841:web:9e30d27d9f6aa2e4fe3c08",
 };
 
 const app = initializeApp(firebaseConfig);

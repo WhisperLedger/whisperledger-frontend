@@ -56,9 +56,9 @@ export default function QuickActionMenu({
             >
               <View style={styles.handle} />
               
-              <Text style={[styles.title, { color: colors.foreground }]}>Quick Actions</Text>
+              <Text style={[styles.title, { color: colors.foreground }]}>Add to your ledger</Text>
               <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-                What would you like to log?
+                Choose what you want to record.
               </Text>
 
               <View style={styles.actionsList}>
@@ -98,9 +98,9 @@ export default function QuickActionMenu({
                     <Feather name="users" size={18} color="#D97706" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.actionTitle, { color: colors.foreground }]}>Split Flat Bill</Text>
+                    <Text style={[styles.actionTitle, { color: colors.foreground }]}>Shared expense</Text>
                     <Text style={[styles.actionDesc, { color: colors.mutedForeground }]}>
-                      Split groceries, rent, maid or WiFi with flatmates
+                      Add a bill or purchase shared with your household
                     </Text>
                   </View>
                   <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
@@ -120,9 +120,9 @@ export default function QuickActionMenu({
                     <Feather name="arrow-up-right" size={18} color="#10B981" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.actionTitle, { color: colors.foreground }]}>Lent / Borrowed</Text>
+                    <Text style={[styles.actionTitle, { color: colors.foreground }]}>Money owed back</Text>
                     <Text style={[styles.actionDesc, { color: colors.mutedForeground }]}>
-                      Track personal dues to recover from friends
+                      Track a refund or money someone needs to return
                     </Text>
                   </View>
                   <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
@@ -143,9 +143,9 @@ export default function QuickActionMenu({
                       <Feather name="zap" size={18} color="#6366F1" />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.actionTitle, { color: colors.foreground }]}>Settle Flat Dues</Text>
+                      <Text style={[styles.actionTitle, { color: colors.foreground }]}>Record a settlement</Text>
                       <Text style={[styles.actionDesc, { color: colors.mutedForeground }]}>
-                        1-Tap UPI pay or record settlement with a flatmate
+                        Mark a shared balance as paid
                       </Text>
                     </View>
                     <Feather name="chevron-right" size={16} color={colors.mutedForeground} />

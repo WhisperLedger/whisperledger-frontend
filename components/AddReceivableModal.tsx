@@ -172,7 +172,7 @@ export default function AddReceivableModal({ visible, onClose }: AddReceivableMo
             <View style={{ flex: 1 }}>
               <Text style={[styles.title, { color: colors.foreground }]}>Track Owed Refund</Text>
               <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-                Money Recovery Agent
+                Add money owed
               </Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>

@@ -36,7 +36,15 @@ import { useHousehold } from "@/context/HouseholdContext";
 import { useSubscription } from "@/context/SubscriptionContext";
 import { useColors } from "@/hooks/useColors";
 import { isSmsAutoSyncAvailable, requestSmsPermission } from "@/utils/smsParser";
-import { queueSMSApprovalNotifications, registerSMSBackgroundSync, unregisterSMSBackgroundSync } from "@/utils/smsSync";
+import {
+  getSmsCaptureMode,
+  queueSMSApprovalNotifications,
+  registerSMSBackgroundSync,
+  setSmsCaptureMode,
+  type SmsCaptureMode,
+  unregisterSMSBackgroundSync,
+} from "@/utils/smsSync";
+import { registerExpoPushToken, requestNotificationPermissions } from "@/utils/notifications";
 import { useTheme } from "@/context/ThemeContext";
 import { appGradients, iconSurface, isDarkPalette, surfaceStyle, bottomInset } from "@/utils/designSystem";
 
@@ -139,6 +147,7 @@ export default function ProfileScreen() {
   const [editingName, setEditingName] = useState(false);
   const [nameVal, setNameVal] = useState(user?.name || "");
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
+  const [smsCaptureMode, setSmsCaptureModeState] = useState<SmsCaptureMode>("manual");
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [showHouseholdModal, setShowHouseholdModal] = useState(false);
@@ -160,8 +169,9 @@ export default function ProfileScreen() {
   }, [user?.name, editingName]);
 
   React.useEffect(() => {
-    AsyncStorage.getItem("@auto_sync_enabled").then(val => {
-      setAutoSyncEnabled(val === "true");
+    Promise.all([AsyncStorage.getItem("@auto_sync_enabled"), getSmsCaptureMode()]).then(([enabled, mode]) => {
+      setAutoSyncEnabled(enabled === "true");
+      setSmsCaptureModeState(mode);
     });
   }, []);
 
@@ -335,7 +345,73 @@ export default function ProfileScreen() {
       await unregisterSMSBackgroundSync();
       return;
     }
-    setShowConsentModal(true);
+    Alert.alert(
+      "How should SMS captures be added?",
+      "Manual review is recommended. You can change this later in Profile.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Manual review",
+          onPress: async () => {
+            await setSmsCaptureMode("manual");
+            setSmsCaptureModeState("manual");
+            setShowConsentModal(true);
+          },
+        },
+        {
+          text: "Add automatically",
+          onPress: () => {
+            Alert.alert(
+              "Add SMS captures automatically?",
+              "Matching bank and UPI transaction messages will be saved to your ledger without individual review. You can switch back to Manual review anytime.",
+              [
+                { text: "Keep manual review", style: "cancel" },
+                {
+                  text: "Use automatic",
+                  onPress: async () => {
+                    await setSmsCaptureMode("automatic");
+                    setSmsCaptureModeState("automatic");
+                    setShowConsentModal(true);
+                  },
+                },
+              ]
+            );
+          },
+        },
+      ]
+    );
+  };
+
+  const handleChangeSmsCaptureMode = () => {
+    Alert.alert("SMS capture mode", "Choose how detected transactions are added.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Manual review",
+        onPress: async () => {
+          await setSmsCaptureMode("manual");
+          setSmsCaptureModeState("manual");
+        },
+      },
+      {
+        text: "Add automatically",
+        onPress: () =>
+          Alert.alert(
+            "Confirm automatic mode",
+            "New matching SMS transactions will be saved without individual review.",
+            [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Confirm",
+                onPress: async () => {
+                  await setSmsCaptureMode("automatic");
+                  setSmsCaptureModeState("automatic");
+                  await queueSMSApprovalNotifications({ userId: user?.uid });
+                },
+              },
+            ]
+          ),
+      },
+    ]);
   };
 
   const proceedWithSmsSync = async () => {
@@ -353,12 +429,29 @@ export default function ProfileScreen() {
         return;
       }
 
+      const notificationsGranted =
+        smsCaptureMode === "manual" ? await requestNotificationPermissions() : true;
+      if (!notificationsGranted) {
+        Alert.alert(
+          "Notifications needed",
+          "SMS captures stay review-first. Allow notifications so WhisperLedger can show each capture for approval."
+        );
+        setAutoSyncEnabled(false);
+        await AsyncStorage.setItem("@auto_sync_enabled", "false");
+        return;
+      }
+
+      // Push is only needed for review-first captures.
+      if (user && smsCaptureMode === "manual") {
+        await registerExpoPushToken(user).catch(() => null);
+      }
+
       setAutoSyncEnabled(true);
       await AsyncStorage.setItem("@auto_sync_enabled", "true");
 
       const result = await queueSMSApprovalNotifications({ userId: user?.uid, initialLookback: true });
       await registerSMSBackgroundSync();
-      if (result.queued > 0) {
+      if (result.queued > 0 || result.added > 0) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     } catch (err: any) {
@@ -939,8 +1032,8 @@ export default function ProfileScreen() {
           <Divider />
           <MenuItem
             icon="message-square"
-            label="Auto-Sync SMS Expenses"
-            sublabel="Read GPay/UPI messages"
+            label="SMS expense capture"
+            sublabel={autoSyncEnabled ? "On — scans supported bank and UPI messages" : "Off"}
             onPress={() => handleToggleAutoSync(!autoSyncEnabled)}
             rightElement={
               <Switch
@@ -950,6 +1043,22 @@ export default function ProfileScreen() {
               />
             }
           />
+          {autoSyncEnabled && (
+            <>
+              <Divider />
+              <MenuItem
+                icon={smsCaptureMode === "manual" ? "check-square" : "zap"}
+                label="Capture mode"
+                sublabel={
+                  smsCaptureMode === "manual"
+                    ? "Manual review — approve each transaction"
+                    : "Automatic — add matching transactions directly"
+                }
+                rightText={smsCaptureMode === "manual" ? "Review" : "Auto"}
+                onPress={handleChangeSmsCaptureMode}
+              />
+            </>
+          )}
           <Divider />
           <MenuItem
             icon="shield"
@@ -979,6 +1088,13 @@ export default function ProfileScreen() {
         {/* Support */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>SUPPORT</Text>
+          <MenuItem
+            icon="message-square"
+            label="WhisperBot"
+            sublabel="Ask about your recorded spending"
+            onPress={() => router.push("/(tabs)/chatbot")}
+          />
+          <Divider />
           <MenuItem
             icon="life-buoy"
             label="Raise Support Ticket"

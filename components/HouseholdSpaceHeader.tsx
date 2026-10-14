@@ -54,6 +54,9 @@ export default function HouseholdSpaceHeader({ onOpenHouseholdManage }: Props) {
           ]}
           onPress={() => handleSelectSpace("personal")}
           activeOpacity={0.8}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: activeSpace === "personal" }}
+          accessibilityLabel="Personal ledger"
         >
           <Feather
             name="user"
@@ -88,6 +91,9 @@ export default function HouseholdSpaceHeader({ onOpenHouseholdManage }: Props) {
           ]}
           onPress={() => handleSelectSpace("household")}
           activeOpacity={0.8}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: activeSpace === "household" }}
+          accessibilityLabel={currentHousehold ? `${flatName} household ledger` : "Household ledger"}
         >
           <Feather
             name="home"

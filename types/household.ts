@@ -53,8 +53,10 @@ export interface Household {
   id: string;
   name: string;
   createdBy: string;
+  createdByName?: string;
   createdAt: number;
   inviteCode: string;
+  currency?: string;
   members: Record<string, HouseholdMember>;
   memberUids: string[];
 }

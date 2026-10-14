@@ -1,5 +1,4 @@
 import { Feather } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -41,7 +40,6 @@ export function BiometricGate({ children }: BiometricGateProps) {
 
   const lockOpacity = useRef(new Animated.Value(1)).current;
   const lockScale = useRef(new Animated.Value(1)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
   const lastBackgroundTime = useRef(0);
   const appState = useRef(AppState.currentState);
 
@@ -49,26 +47,6 @@ export function BiometricGate({ children }: BiometricGateProps) {
   const isUnlockedRef = useRef(true);
   const isSystemPromptActiveRef = useRef(false);
   const hasInitializedRef = useRef(false);
-
-  // Pulse animation for biometric icon
-  useEffect(() => {
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.08,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    pulse.start();
-    return () => pulse.stop();
-  }, [pulseAnim]);
 
   const triggerAuth = useCallback(async () => {
     if (isAuthenticatingRef.current || isUnlockedRef.current) return;
@@ -229,10 +207,7 @@ export function BiometricGate({ children }: BiometricGateProps) {
           },
         ]}
       >
-        <LinearGradient
-          colors={["#080A10", "#0D111E", "#080A10"]}
-          style={styles.gradient}
-        >
+        <View style={styles.gradient}>
           <View style={[styles.lockContainer, { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 24 }]}>
             {/* Header / Logo */}
             <View style={styles.topSection}>
@@ -254,7 +229,7 @@ export function BiometricGate({ children }: BiometricGateProps) {
                 disabled={isAuthenticating}
                 style={styles.biometricTouch}
               >
-                <Animated.View style={[styles.auraCircle, { transform: [{ scale: pulseAnim }] }]} />
+                <View style={styles.auraCircle} />
                 <View style={styles.iconCircle}>
                   <Feather
                     name={iconName as any}
@@ -305,7 +280,7 @@ export function BiometricGate({ children }: BiometricGateProps) {
               </TouchableOpacity>
             </View>
           </View>
-        </LinearGradient>
+        </View>
       </Animated.View>
     </View>
   );
@@ -321,6 +296,7 @@ const styles = StyleSheet.create({
   },
   gradient: {
     flex: 1,
+    backgroundColor: "#F8FAFC",
   },
   lockContainer: {
     flex: 1,
@@ -337,13 +313,13 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "rgba(56, 130, 255, 0.3)",
+    borderColor: "#E2E8F0",
     marginBottom: 14,
-    shadowColor: "#3882FF",
+    shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 6,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
   },
   logoImage: {
     width: "100%",
@@ -352,13 +328,13 @@ const styles = StyleSheet.create({
   appName: {
     fontSize: 24,
     fontFamily: "Inter_700Bold",
-    color: "#F8FAFC",
+    color: "#0F172A",
     letterSpacing: -0.4,
   },
   securitySub: {
     fontSize: 13,
     fontFamily: "Inter_500Medium",
-    color: "rgba(148, 163, 184, 0.7)",
+    color: "#64748B",
     marginTop: 4,
     letterSpacing: 0.5,
   },
@@ -377,24 +353,24 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: "rgba(56, 130, 255, 0.12)",
+    backgroundColor: "#EFF6FF",
     borderWidth: 1,
-    borderColor: "rgba(56, 130, 255, 0.25)",
+    borderColor: "#BFDBFE",
   },
   iconCircle: {
     width: 76,
     height: 76,
     borderRadius: 38,
-    backgroundColor: "rgba(15, 23, 42, 0.8)",
-    borderWidth: 1.5,
-    borderColor: "rgba(56, 130, 255, 0.45)",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
     alignItems: "center",
     justifyContent: "center",
   },
   authTitle: {
     fontSize: 16,
     fontFamily: "Inter_600SemiBold",
-    color: "#F1F5F9",
+    color: "#0F172A",
     marginBottom: 6,
   },
   authDesc: {
@@ -414,14 +390,14 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderColor: "#E2E8F0",
   },
   pinFallbackText: {
     fontSize: 13,
     fontFamily: "Inter_500Medium",
-    color: "#94A3B8",
+    color: "#475569",
   },
   signOutBtn: {
     flexDirection: "row",

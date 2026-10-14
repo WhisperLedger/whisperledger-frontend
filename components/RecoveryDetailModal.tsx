@@ -102,7 +102,7 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
     Alert.alert("Confirm Recovery", `Mark ₹${receivable.amount.toLocaleString("en-IN")} from ${receivable.merchant} as recovered?`, [
       { text: "Cancel", style: "cancel" },
       {
-        text: "Yes, Money Received ✓",
+        text: "Confirm received",
         onPress: async () => {
           await markAsRecovered(receivable.id);
           safeHaptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -159,7 +159,7 @@ export default function RecoveryDetailModal({ receivable, visible, onClose }: Re
             {receivable.status !== "RECOVERED" && (
               <TouchableOpacity style={styles.recoveredBtn} activeOpacity={0.8} onPress={handleMarkRecovered}>
                 <Feather name="check-circle" size={16} color="#fff" style={{ marginRight: 6 }} />
-                <Text style={styles.recoveredBtnText}>Mark Recovered ✓</Text>
+                <Text style={styles.recoveredBtnText}>Mark as received</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity style={styles.deleteBtn} activeOpacity={0.8} onPress={handleDelete}>

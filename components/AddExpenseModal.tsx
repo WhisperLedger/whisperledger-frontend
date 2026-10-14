@@ -73,7 +73,7 @@ interface Props {
 
 const QUICK_INCREMENTS = [50, 100, 500, 2000];
 
-const GENZ_VIBES: { label: string; icon: string; category: CategoryId }[] = [
+const QUICK_CATEGORIES: { label: string; icon: string; category: CategoryId }[] = [
   { label: "Coffee Run", icon: "coffee", category: "food_outside" },
   { label: "Fast Food", icon: "shopping-bag", category: "food_outside" },
   { label: "Cab / Auto", icon: "navigation", category: "travel" },
@@ -113,6 +113,7 @@ export default function AddExpenseModal({
   const [date, setDate] = useState(todayISO());
   const [saving, setSaving] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
+  const [showMoreDetails, setShowMoreDetails] = useState(false);
   const [splitState, setSplitState] = useState<SplitState | null>(null);
 
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -215,7 +216,7 @@ export default function AddExpenseModal({
     setAmount(String(curr + val));
   };
 
-  const handleApplyVibe = (vibe: typeof GENZ_VIBES[0]) => {
+  const handleApplyQuickCategory = (vibe: typeof QUICK_CATEGORIES[0]) => {
     safeHaptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedCategory(vibe.category);
     if (!note) {
@@ -766,6 +767,23 @@ export default function AddExpenseModal({
       fontWeight: "700" as const,
       fontFamily: "Inter_700Bold",
     },
+    moreDetailsBtn: {
+      minHeight: 44,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "#F8FAFC",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      marginTop: 6,
+    },
+    moreDetailsText: {
+      fontSize: 13,
+      fontFamily: "Inter_600SemiBold",
+      color: colors.foreground,
+    },
   });
 
   return (
@@ -791,7 +809,7 @@ export default function AddExpenseModal({
                   <View style={styles.titleIcon}>
                     <Feather name={editExpense ? "edit-2" : "plus"} size={16} color={colors.primary} />
                   </View>
-                  <Text style={styles.title}>{editExpense ? "Edit Spend" : "Quick Add Spend"}</Text>
+                  <Text style={styles.title}>{editExpense ? "Edit expense" : "Add expense"}</Text>
                 </View>
                 <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Feather name="x" size={16} color={colors.mutedForeground} />
@@ -863,14 +881,13 @@ export default function AddExpenseModal({
                   </View>
                 </View>
 
-                {/* Gen-Z Quick Vibe / Activity Presets */}
-                <Text style={styles.sectionLabel}>Quick Vibes & Moods</Text>
+                <Text style={styles.sectionLabel}>Suggested categories</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.vibeScroll}>
-                  {GENZ_VIBES.map((v, i) => (
+                  {QUICK_CATEGORIES.map((v, i) => (
                     <TouchableOpacity
                       key={i}
                       style={styles.vibeChip}
-                      onPress={() => handleApplyVibe(v)}
+                      onPress={() => handleApplyQuickCategory(v)}
                       activeOpacity={0.75}
                     >
                       <Feather name={v.icon as any} size={13} color={colors.primary} />
@@ -933,6 +950,19 @@ export default function AddExpenseModal({
                   })}
                 </View>
 
+                <TouchableOpacity
+                  style={styles.moreDetailsBtn}
+                  onPress={() => setShowMoreDetails((current) => !current)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: showMoreDetails }}
+                  accessibilityLabel="Show additional expense details"
+                >
+                  <Feather name={showMoreDetails ? "chevron-up" : "sliders"} size={15} color={colors.primary} />
+                  <Text style={styles.moreDetailsText}>{showMoreDetails ? "Hide details" : "Add payment, note or date"}</Text>
+                </TouchableOpacity>
+
+                {showMoreDetails && <>
                 {/* Payment Mode */}
                 <Text style={styles.sectionLabel}>Payment Mode</Text>
                 <View style={styles.paymentRow}>
@@ -1139,6 +1169,7 @@ export default function AddExpenseModal({
                     <Text style={styles.previewAmount}>₹{parsedAmount.toLocaleString("en-IN")}</Text>
                   </View>
                 )}
+                </>}
               </ScrollView>
 
               {/* Save CTA */}

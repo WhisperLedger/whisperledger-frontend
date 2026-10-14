@@ -15,16 +15,7 @@ import {
   Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-} from "firebase/firestore";
+import { collection, doc, onSnapshot, orderBy, query, setDoc, updateDoc, deleteDoc } from "firebase/firestore";
 
 import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
@@ -36,6 +27,9 @@ import {
   scheduleDailyExpenseReminder,
 } from "@/utils/notifications";
 import { classifyCategory } from "@/utils/smsParser";
+import { saveSmsExpense } from "@/utils/smsExpense";
+import { markSmsIgnored, syncNativePendingApprovals } from "@/utils/smsSync";
+import type { ParsedSMS } from "@/utils/smsParser";
 
 interface NotificationItem {
   id: string;
@@ -97,6 +91,7 @@ export default function NotificationsScreen() {
   }>();
 
   const [items, setItems] = useState<NotificationItem[]>([]);
+  const [pendingSms, setPendingSms] = useState<ParsedSMS[]>([]);
   const [hour, setHour] = useState(20);
   const [minute, setMinute] = useState(0);
   const [savingReminder, setSavingReminder] = useState(false);
@@ -120,8 +115,7 @@ export default function NotificationsScreen() {
     if (params.action === "approve") {
       (async () => {
         try {
-          const docId = `sms_${rawSmsId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-          await setDoc(doc(db, `users/${user.uid}/expenses`, docId), {
+          await saveSmsExpense(user.uid, {
             amount: numAmount,
             note: `Auto-synced: ${rawMerchant}`,
             categoryId: classifyCategory(rawMerchant),
@@ -129,11 +123,10 @@ export default function NotificationsScreen() {
             date: smsDate,
             smsId: rawSmsId,
             merchant: rawMerchant,
-            createdAt: Date.now(),
           });
           await markSMSApprovalProcessed(rawSmsId);
           await dismissAndClearNotification(rawSmsId, user.uid);
-          Alert.alert("Approved! 🎉", `Added ₹${numAmount} at ${rawMerchant} to your ledger.`);
+          Alert.alert("Transaction added", `Added ₹${numAmount} at ${rawMerchant} to your ledger.`);
         } catch (err) {
           console.error("Param approval failed:", err);
         }
@@ -155,8 +148,7 @@ export default function NotificationsScreen() {
             text: "Approve",
             onPress: async () => {
               try {
-                const docId = `sms_${rawSmsId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-                await setDoc(doc(db, `users/${user.uid}/expenses`, docId), {
+                await saveSmsExpense(user.uid, {
                   amount: numAmount,
                   note: `Auto-synced: ${rawMerchant}`,
                   categoryId: classifyCategory(rawMerchant),
@@ -164,7 +156,6 @@ export default function NotificationsScreen() {
                   date: smsDate,
                   smsId: rawSmsId,
                   merchant: rawMerchant,
-                  createdAt: Date.now(),
                 });
                 await markSMSApprovalProcessed(rawSmsId);
                 await dismissAndClearNotification(rawSmsId, user.uid);
@@ -242,6 +233,36 @@ export default function NotificationsScreen() {
     });
     return unsub;
   }, [user, isLoading]);
+
+  const refreshPendingSms = async () => {
+    if (!user) return;
+    setPendingSms(await syncNativePendingApprovals());
+  };
+
+  useEffect(() => {
+    void refreshPendingSms();
+  }, [user?.uid]);
+
+  const approvePendingSms = async (transaction: ParsedSMS) => {
+    if (!user) return;
+    try {
+      const saved = await saveSmsExpense(user.uid, transaction);
+      await markSMSApprovalProcessed(transaction.smsId);
+      await dismissAndClearNotification(transaction.smsId, user.uid);
+      setPendingSms((current) => current.filter((item) => item.smsId !== transaction.smsId));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (!saved) Alert.alert("Already added", "This transaction is already in your ledger.");
+    } catch {
+      Alert.alert("Could not approve", "Please check your connection and try again.");
+    }
+  };
+
+  const discardPendingSms = async (transaction: ParsedSMS) => {
+    await markSmsIgnored(transaction.smsId);
+    if (user) await dismissAndClearNotification(transaction.smsId, user.uid);
+    setPendingSms((current) => current.filter((item) => item.smsId !== transaction.smsId));
+    Haptics.selectionAsync();
+  };
 
   useEffect(() => {
     if (!user || isLoading || items.length === 0) return;
@@ -783,6 +804,16 @@ export default function NotificationsScreen() {
       borderColor: colors.border,
     },
     itemUnread: { borderColor: colors.primary },
+    pendingSection: { paddingHorizontal: 16, paddingTop: 14, gap: 10 },
+    pendingTitle: { fontSize: 12, fontFamily: "Inter_700Bold", color: colors.mutedForeground, letterSpacing: 0.8 },
+    pendingCard: { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 14 },
+    pendingAmount: { fontSize: 18, fontFamily: "Inter_700Bold", color: colors.foreground },
+    pendingMeta: { marginTop: 3, fontSize: 13, fontFamily: "Inter_400Regular", color: colors.mutedForeground },
+    pendingActions: { flexDirection: "row", gap: 10, marginTop: 14 },
+    pendingApprove: { flex: 1, minHeight: 40, backgroundColor: colors.primary, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+    pendingDiscard: { minHeight: 40, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+    pendingApproveText: { color: "#fff", fontFamily: "Inter_600SemiBold", fontSize: 13 },
+    pendingDiscardText: { color: colors.foreground, fontFamily: "Inter_600SemiBold", fontSize: 13 },
     itemTitle: { color: colors.foreground, fontFamily: "Inter_600SemiBold", fontSize: 14 },
     itemBody: { color: colors.mutedForeground, fontFamily: "Inter_400Regular", fontSize: 13, marginTop: 4 },
     itemMeta: { color: colors.mutedForeground, fontFamily: "Inter_400Regular", fontSize: 11, marginTop: 8 },
@@ -1052,6 +1083,27 @@ export default function NotificationsScreen() {
         data={items}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        ListHeaderComponent={
+          pendingSms.length ? (
+            <View style={s.pendingSection}>
+              <Text style={s.pendingTitle}>PENDING SMS CAPTURES ({pendingSms.length})</Text>
+              {pendingSms.map((transaction) => (
+                <View key={transaction.smsId} style={s.pendingCard}>
+                  <Text style={s.pendingAmount}>₹{transaction.amount.toLocaleString("en-IN")}</Text>
+                  <Text style={s.pendingMeta}>{transaction.merchant} · {transaction.date}</Text>
+                  <View style={s.pendingActions}>
+                    <TouchableOpacity style={s.pendingApprove} onPress={() => void approvePendingSms(transaction)}>
+                      <Text style={s.pendingApproveText}>Approve</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={s.pendingDiscard} onPress={() => void discardPendingSms(transaction)}>
+                      <Text style={s.pendingDiscardText}>Discard</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : null
+        }
         ListEmptyComponent={
           <View style={s.empty}>
             <Text style={s.emptyText}>No notifications yet.</Text>

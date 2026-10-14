@@ -64,6 +64,10 @@ export function isJailbreakOrPromptInjection(input: string): boolean {
     /bypass (safety|rules|policy|guardrails|instructions)/,
     /override (your )?(rules|instructions|system)/,
     /act as if you have no (rules|policy|restrictions)/,
+    /ignore .*?(safety|guardrail|restriction|confirmation)/,
+    /do not (ask|show) .*?(confirm|review)/,
+    /pretend (you are|to be) /,
+    /system prompt|hidden prompt|prompt injection/,
     /make up (expenses|transactions|data|numbers)/,
     /hallucinate/,
   ];
@@ -73,8 +77,8 @@ export function isJailbreakOrPromptInjection(input: string): boolean {
 
 export function getJailbreakResponse(): string {
   return (
-    "I cannot follow instructions to bypass rules, reveal hidden prompts, or make up financial data.\n\n" +
-    "I can help with your actual app data: ask things like **what did I spend this month**, **where can I save**, **show recent expenses**, or **log 250 on lunch**."
+    "I cannot follow requests to bypass safety checks, reveal hidden instructions, invent financial data, or take actions without a clear review.\n\n" +
+    "I can help with your actual ledger: ask **this month kitna spend hua**, **show recent expenses**, or **log 250 on lunch**."
   );
 }
 

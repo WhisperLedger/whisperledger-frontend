@@ -42,23 +42,23 @@ interface OnboardingSlide {
 
 const ONBOARDING_SLIDES: OnboardingSlide[] = [
   {
-    title: "Absolute Privacy",
-    subtitle: "Zero-Knowledge Storage",
-    desc: "All transaction logs and expense data live strictly offline on your device. Your financial secrets are 100% secure.",
+    title: "Privacy by choice",
+    subtitle: "You control each permission",
+    desc: "Start with manual tracking. Cloud sync, SMS capture, notifications and household sharing are optional and explained before you turn them on.",
     icon: "shield",
     gradient: ["#2563EB", "#1E40AF"],
   },
   {
-    title: "SMS Auto-Sync",
-    subtitle: "Effortless Automation",
-    desc: "WhisperLedger monitors incoming transaction SMS alerts in the background and automatically categorizes them in seconds.",
+    title: "Review optional captures",
+    subtitle: "Nothing is silently counted",
+    desc: "If you enable SMS capture, WhisperLedger can identify transaction alerts and present them for your review before you rely on them in your ledger.",
     icon: "zap",
     gradient: ["#3B82F6", "#1D4ED8"],
   },
   {
-    title: "Visual Analytics",
-    subtitle: "Beautiful Ledger Details",
-    desc: "Export credit-card-style PDF statements and view color-coded category shares with a single tap.",
+    title: "See what needs attention",
+    subtitle: "Personal, shared and pending",
+    desc: "Keep daily spending, household balances and pending refunds distinct, then explore category and monthly patterns when you need them.",
     icon: "bar-chart-2",
     gradient: ["#0066FF", "#0052CC"],
   },
@@ -85,10 +85,10 @@ function translateAuthError(rawError: string | object): string {
     return "Google SSO requires adding your APK SHA-1 fingerprint (5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25) to Firebase Console > Project Settings.";
   }
   if (msg.includes("email_not_verified") || msg.includes("email not verified")) {
-    return "Email Not Verified 📩\nPlease check your inbox and click the verification link sent to your email address before logging in.";
+    return "Email not verified\nPlease check your inbox and open the verification link before signing in.";
   }
   if (msg.includes("invalid-credential") || msg.includes("wrong-password") || msg.includes("user-not-found") || msg.includes("auth/invalid-credential")) {
-    return "Incorrect username/email or password. If you don't have an account yet, tap 'Create one' below to register!";
+    return "Incorrect email or password. If you don't have an account yet, tap 'Create one' below to register!";
   }
   if (msg.includes("invalid-email")) {
     return "Please enter a valid email address.";
@@ -355,7 +355,7 @@ export default function LoginScreen() {
     const cleanPassword = password.trim();
 
     if (!cleanUsername || !cleanPassword) {
-      setError("Please enter both username/email and password.");
+      setError("Please enter both email and password.");
       return;
     }
 
@@ -984,7 +984,7 @@ export default function LoginScreen() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 14, fontWeight: "700", color: "#10b981", fontFamily: "Inter_700Bold" }}>
-                      Verification Email Sent! 📩
+                      Verification email sent
                     </Text>
                     <Text style={{ fontSize: 12, color: colors.foreground, fontFamily: "Inter_400Regular", marginTop: 2, lineHeight: 16 }}>
                       We sent a verification link to <Text style={{ fontWeight: "700", color: colors.primary }}>{params.email}</Text>. Please open your inbox, click the link to verify, then sign in below.
@@ -994,14 +994,14 @@ export default function LoginScreen() {
               )}
 
               <View style={styles.card}>
-                <Text style={[styles.label, { marginTop: 0 }]}>EMAIL / USERNAME</Text>
+                <Text style={[styles.label, { marginTop: 0 }]}>EMAIL ADDRESS</Text>
                 <View style={styles.inputWrap}>
                   <Feather name="user" size={16} color={colors.mutedForeground} style={{ marginRight: 8 }} />
                   <TextInput
                     style={styles.input}
                     value={username}
                     onChangeText={setUsername}
-                    placeholder="Enter your email or username"
+                    placeholder="Enter your email address"
                     placeholderTextColor={colors.mutedForeground}
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -1036,7 +1036,7 @@ export default function LoginScreen() {
                   style={[styles.forgotBtn, { opacity: username.trim().length > 0 ? 1 : 0.4 }]}
                   onPress={() => {
                     if (!username.trim()) {
-                      setError("Please enter your email or username above first to reset password.");
+                      setError("Please enter your email address above first to reset password.");
                       return;
                     }
                     handleForgotPassword();

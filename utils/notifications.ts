@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
 import { NativeModules, Platform } from "react-native";
-import { collection, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, setDoc, updateDoc } from "firebase/firestore";
 
 function getSmsBridge() {
   try {
@@ -152,7 +152,8 @@ export async function setupNotifications() {
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#4f46e5",
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      // Financial notifications must not reveal amounts or merchants on a locked device.
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
       showBadge: true,
       enableVibrate: true,
       enableLights: true,
@@ -180,6 +181,14 @@ export async function requestNotificationPermissions() {
   return finalStatus === "granted";
 }
 
+/** Checks notification access without displaying a system prompt. Safe for background flows. */
+export async function hasNotificationPermission() {
+  const Notifications = getNotificationsModule();
+  if (!Notifications) return false;
+  const { status } = await Notifications.getPermissionsAsync();
+  return status === "granted";
+}
+
 type PushRegistrationUser = { uid: string; name?: string; email?: string };
 
 export async function persistExpoPushToken(user: PushRegistrationUser, token: string) {
@@ -203,8 +212,7 @@ export async function registerExpoPushToken(user: PushRegistrationUser): Promise
 
   await setupNotifications();
   const permission = await Notifications.getPermissionsAsync();
-  let status = permission.status;
-  if (status !== "granted") status = (await Notifications.requestPermissionsAsync()).status;
+  const status = permission.status;
 
   if (status !== "granted") {
     await setDoc(doc(db, `users/${user.uid}`), {
@@ -366,46 +374,14 @@ export async function logUserNotification(params: {
       notificationType: params.notificationType,
       data: params.data || {},
       read: params.read ?? false,
-      pushedDirectly: true,
+      delivery: "received",
       createdAt: Date.now(),
     },
     { merge: true }
   );
 
-  // Direct High-Priority Push Notification over Expo Push API for instantaneous real-time delivery
-  try {
-    const userDoc = await getDoc(doc(db, "users", params.userId));
-    const pushToken = userDoc.data()?.pushToken;
-    if (
-      pushToken &&
-      typeof pushToken === "string" &&
-      (pushToken.startsWith("ExpoPushToken") || pushToken.startsWith("ExponentPushToken"))
-    ) {
-      fetch("https://exp.host/--/api/v2/push/send", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          to: pushToken,
-          sound: "default",
-          title: params.title,
-          body: params.body,
-          priority: "high",
-          channelId: "default",
-          _displayInForeground: true,
-          data: {
-            ...(params.data || {}),
-            notificationType: params.notificationType,
-            firestoreNotifId: params.notificationId,
-          },
-        }),
-      }).catch((e) => console.warn("[Push] Direct push dispatch error:", e));
-    }
-  } catch (pushErr) {
-    console.warn("[Push] Failed to fetch recipient push token for direct push:", pushErr);
-  }
+  // The client only records notifications. Delivery belongs to the trusted backend/admin
+  // sender; sending another push here can duplicate a notification or create a loop.
 }
 
 /**

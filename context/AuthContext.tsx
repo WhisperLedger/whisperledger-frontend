@@ -14,10 +14,13 @@ import {
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { doc, setDoc, query, collection, where, getDocs } from "firebase/firestore";
+import { doc, setDoc, writeBatch } from "firebase/firestore";
 import { Platform } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 import { db, auth } from "../lib/firebase";
+import { api } from "../lib/api";
+import { runtimeConfig } from "@/config/runtime";
+import { SecureSession, SECURE_KEYS } from "../lib/secureStorage";
 import { validateEmail, validateFullName, validateUsername } from "@/utils/validation";
 import { validatePassword } from "@/utils/passwordValidator";
 
@@ -83,6 +86,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .finally(() => {
         setIsLoading(false);
       });
+
+    if (runtimeConfig.dataBackend === "api") {
+      api.getMe()
+        .then((res) => {
+          if (res.success && res.data?.user) {
+            const apiUser = res.data.user;
+            const updatedUser: User = {
+              uid: apiUser.id,
+              name: apiUser.full_name || "User",
+              email: apiUser.email || "",
+              avatarUri: apiUser.avatar_url || undefined,
+              username: apiUser.email?.split("@")[0] || "user",
+            };
+            setUser(updatedUser);
+            AsyncStorage.setItem("@last_active_user_session", JSON.stringify(updatedUser)).catch(() => null);
+          }
+        })
+        .catch((err) => {
+          console.warn("⚠️ API getMe boot check failed:", err);
+        })
+        .finally(() => {
+          setIsAuthReady(true);
+          setIsLoading(false);
+        });
+      return;
+    }
 
     const GoogleSignin = getGoogleSigninModule();
     if (GoogleSignin) {
@@ -182,52 +211,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = useCallback(async (identifier: string, pass: string) => {
-    const cleanId = identifier.trim();
-    console.log("🔑 [AuthContext] Login flow started for identifier:", cleanId);
-    try {
-      let targetEmail = cleanId;
+    const cleanEmail = identifier.trim().toLowerCase();
+    if (!cleanEmail.includes("@")) {
+      return { success: false, error: "Please sign in with your email address." };
+    }
 
-      // If user typed a username (no @), resolve email from Firestore
-      if (!cleanId.includes("@")) {
-        console.log("🔍 Resolving username from Firestore...");
-        const usersRef = collection(db, "users");
-        const q = query(usersRef, where("username", "==", cleanId.toLowerCase()));
-        const querySnapshot = await getDocs(q);
-
-        if (querySnapshot.empty) {
-          return {
-            success: false,
-            error: "Username not found. Please check your username or enter your registered email address.",
+    if (runtimeConfig.dataBackend === "api") {
+      try {
+        const res = await api.login(cleanEmail, pass);
+        if (res.success && res.data?.user) {
+          const apiUser = res.data.user;
+          const updatedUser: User = {
+            uid: apiUser.id,
+            name: apiUser.full_name || "User",
+            email: apiUser.email || cleanEmail,
+            avatarUri: apiUser.avatar_url || undefined,
+            username: cleanEmail.split("@")[0],
           };
+          setUser(updatedUser);
+          await AsyncStorage.setItem("@last_active_user_session", JSON.stringify(updatedUser));
+          return { success: true };
         }
-
-        const userDoc = querySnapshot.docs[0];
-        targetEmail = userDoc.data()?.email;
-        if (!targetEmail) {
-          return { success: false, error: "Unable to find registered email for this username." };
-        }
+        return {
+          success: false,
+          error: res.error?.message || "Invalid email or password",
+        };
+      } catch (err: any) {
+        return { success: false, error: err.message || "Failed to connect to backend server" };
       }
+    }
 
-      console.log("📡 [AuthContext] Calling signInWithEmailAndPassword for email:", targetEmail);
-      const credential = await signInWithEmailAndPassword(auth, targetEmail, pass);
+    try {
+      const credential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
 
       // Email Verification Check
       if (!credential.user.emailVerified) {
-        console.warn("⚠️ Email not verified for user:", targetEmail);
         await sendEmailVerification(credential.user).catch(() => null);
         await signOut(auth);
         return {
           success: false,
           error: "EMAIL_NOT_VERIFIED",
-          userEmail: targetEmail,
+          userEmail: cleanEmail,
         };
       }
 
-      console.log("✅ [AuthContext] signInWithEmailAndPassword succeeded!");
-
       await setDoc(doc(db, `users/${credential.user.uid}`), {
         uid: credential.user.uid,
-        email: credential.user.email || targetEmail,
+        email: credential.user.email || cleanEmail,
         emailVerified: true,
         pendingVerification: false,
         verifiedAt: Date.now(),
@@ -251,43 +281,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const register = useCallback(async (username: string, pass: string, name: string, email: string) => {
-    console.log("📝 [AuthContext] Register flow started for:", email);
     isRegisteringRef.current = true;
-    try {
-      const cleanEmail = email.trim().toLowerCase();
-      const cleanUsername = username.trim().toLowerCase();
-      const cleanName = name.trim().replace(/\s+/g, " ");
-      const emailCheck = validateEmail(cleanEmail);
-      const usernameCheck = validateUsername(cleanUsername);
-      const nameCheck = validateFullName(cleanName);
-      const passwordCheck = validatePassword(pass);
+    let createdUser: FirebaseUser | null = null;
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanUsername = username.trim().toLowerCase();
+    const cleanName = name.trim().replace(/\s+/g, " ");
+    const emailCheck = validateEmail(cleanEmail);
+    const usernameCheck = validateUsername(cleanUsername);
+    const nameCheck = validateFullName(cleanName);
+    const passwordCheck = validatePassword(pass);
 
-      if (!nameCheck.isValid) return { success: false, error: nameCheck.error };
-      if (!emailCheck.isValid) return { success: false, error: emailCheck.error };
-      if (!usernameCheck.isValid) return { success: false, error: usernameCheck.error };
-      if (!passwordCheck.isValid) return { success: false, error: passwordCheck.errors[0] };
+    if (!nameCheck.isValid) return { success: false, error: nameCheck.error };
+    if (!emailCheck.isValid) return { success: false, error: emailCheck.error };
+    if (!usernameCheck.isValid) return { success: false, error: usernameCheck.error };
+    if (!passwordCheck.isValid) return { success: false, error: passwordCheck.errors[0] };
 
-      const usernameSnapshot = await getDocs(query(collection(db, "users"), where("username", "==", cleanUsername)));
-      if (!usernameSnapshot.empty) {
-        return { success: false, error: "This username is already taken. Please choose another one." };
-      }
-
-      console.log("📡 [AuthContext] Calling createUserWithEmailAndPassword...");
-      const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
-      await updateProfileFirebase(userCredential.user, { displayName: cleanName });
-      
-      // Send verification link to user's email
-      let emailSent = false;
+    if (runtimeConfig.dataBackend === "api") {
       try {
-        await sendEmailVerification(userCredential.user);
-        emailSent = true;
-        console.log("📧 Verification email sent to:", cleanEmail);
-      } catch (evErr: any) {
-        console.warn("⚠️ Failed to send email verification during registration (non-fatal):", evErr);
+        const res = await api.register(cleanEmail, pass, cleanName);
+        if (res.success && res.data?.user) {
+          const apiUser = res.data.user;
+          const updatedUser: User = {
+            uid: apiUser.id,
+            name: apiUser.full_name || cleanName,
+            email: apiUser.email || cleanEmail,
+            avatarUri: apiUser.avatar_url || undefined,
+            username: cleanUsername,
+          };
+          setUser(updatedUser);
+          await AsyncStorage.setItem("@last_active_user_session", JSON.stringify(updatedUser));
+          return { success: true };
+        }
+        return {
+          success: false,
+          error: res.error?.message || "Registration failed",
+        };
+      } catch (err: any) {
+        return { success: false, error: err.message || "Failed to register" };
       }
+    }
 
-      console.log("📡 [AuthContext] Saving pending user record to Firestore...");
-      await setDoc(doc(db, `users/${userCredential.user.uid}`), {
+    try {
+
+      const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
+      createdUser = userCredential.user;
+      await updateProfileFirebase(userCredential.user, { displayName: cleanName });
+
+      // The username index is an atomic, create-only reservation. It avoids a
+      // public users query (which would expose account data) and prevents races.
+      const batch = writeBatch(db);
+      batch.set(doc(db, `users/${userCredential.user.uid}`), {
         uid: userCredential.user.uid,
         name: cleanName,
         email: cleanEmail,
@@ -296,7 +339,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         pendingVerification: true,
         authProvider: "password",
         createdAt: Date.now(),
-      }, { merge: true });
+      });
+      batch.set(doc(db, `usernames/${cleanUsername}`), {
+        uid: userCredential.user.uid,
+        createdAt: Date.now(),
+      });
+      await batch.commit();
+
+      // Send verification link to user's email
+      let emailSent = false;
+      try {
+        await sendEmailVerification(userCredential.user);
+        emailSent = true;
+      } catch (evErr: any) {
+        console.warn("⚠️ Failed to send email verification during registration (non-fatal):", evErr);
+      }
 
       // Sign out immediately so unverified account is never logged into state
       await signOut(auth);
@@ -304,9 +361,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.removeItem("@last_active_user_session").catch(() => null);
 
       isRegisteringRef.current = false;
-      return { success: true, emailVerificationSent: true, email: cleanEmail };
+      return { success: true, emailVerificationSent: emailSent, email: cleanEmail };
     } catch (error: any) {
+      if (createdUser) await deleteUser(createdUser).catch(() => null);
       isRegisteringRef.current = false;
+      if (error?.code === "permission-denied" || error?.code === "already-exists") {
+        return { success: false, error: "This username is already taken. Please choose another one." };
+      }
       console.warn("❌ [AuthContext] Registration Error caught:", error);
       return { success: false, error: error.message };
     } finally {
@@ -372,23 +433,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.warn("⚠️ WebBrowser Google Auth Session failed:", webErr);
       }
 
-      // Stage 3: Instant Verified Google SSO Account Fallback
-      const demoGoogleEmail = "google.user@whisperledger.com";
-      const demoGooglePassword = "GoogleSSOPassword123!";
-      try {
-        await signInWithEmailAndPassword(auth, demoGoogleEmail, demoGooglePassword);
-        return { success: true };
-      } catch (e: any) {
-        if (e?.code === "auth/user-not-found" || e?.code === "auth/invalid-credential") {
-          const newUser = await createUserWithEmailAndPassword(auth, demoGoogleEmail, demoGooglePassword);
-          await updateProfileFirebase(newUser.user, {
-            displayName: "Google User",
-            photoURL: "https://lh3.googleusercontent.com/a/default-user",
-          });
-          return { success: true };
-        }
-        throw e;
-      }
+      return { success: false, error: "Google sign-in is not available on this device. Please use email and password." };
     } catch (error: any) {
       console.warn("Google Login Error:", error);
       return { success: false, error: error.message || String(error) };
@@ -396,6 +441,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    if (runtimeConfig.dataBackend === "api") {
+      await SecureSession.removeItem(SECURE_KEYS.AUTH_TOKEN);
+      setUser(null);
+      setIsLoading(false);
+      await AsyncStorage.removeItem("@last_active_user_session").catch(() => null);
+      return;
+    }
+
     const GoogleSignin = getGoogleSigninModule();
     isSigningOutRef.current = true;
     let signedOut = false;
@@ -418,6 +471,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const updateProfile = useCallback(async (updates: Partial<Omit<User, "uid" | "email">>) => {
     if (!user) return;
     
+    if (runtimeConfig.dataBackend === "api") {
+      setUser((prev) => (prev ? { ...prev, ...updates } : null));
+      try {
+        const cachedKey = `@user_profile_${user.uid}`;
+        const cached = await AsyncStorage.getItem(cachedKey);
+        const currentProfile = cached ? JSON.parse(cached) : {};
+        const merged = { ...currentProfile, ...updates };
+        await AsyncStorage.setItem(cachedKey, JSON.stringify(merged));
+        await AsyncStorage.setItem("@last_active_user_session", JSON.stringify({ ...user, ...updates }));
+      } catch (err) {
+        console.error("Local storage user save failed:", err);
+      }
+      return;
+    }
+
     setUser((prev) => prev ? { ...prev, ...updates } : null);
     
     if (updates.name && auth.currentUser) {
@@ -441,16 +509,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const forgotPassword = useCallback(async (email: string) => {
-    console.log("🔒 [AuthContext] Forgot password request for:", email);
     try {
-      // 1. Send via Cloud Function for anti-spam DKIM/SPF HTML email
-      const { addDoc: fsAddDoc, collection: fsCollection } = require("firebase/firestore");
-      await fsAddDoc(fsCollection(db, "password_resets"), {
-        email: email.trim().toLowerCase(),
-        createdAt: Date.now(),
-      }).catch((e: any) => console.warn("Background password reset trigger skipped:", e));
-
-      // 2. Also trigger standard Firebase Auth password reset with proper ActionCodeSettings to avoid SPAM flags
+      // Firebase Auth owns password reset delivery; no reset requests or email
+      // addresses are written to Firestore from the client.
       const actionCodeSettings = {
         url: "https://whisperledger.app/login",
         handleCodeInApp: true,
