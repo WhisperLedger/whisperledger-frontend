@@ -126,6 +126,9 @@ export default function PrivacyConsentModal({
               <TouchableOpacity
                 activeOpacity={0.8}
                 style={styles.checkboxRow}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: checkOnDevice }}
+                accessibilityLabel="Confirm on-device SMS processing"
                 onPress={() => {
                   safeHaptics.selectionAsync();
                   setCheckOnDevice(!checkOnDevice);
@@ -148,6 +151,9 @@ export default function PrivacyConsentModal({
               <TouchableOpacity
                 activeOpacity={0.8}
                 style={styles.checkboxRow}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: checkScope }}
+                accessibilityLabel="Consent to detect transaction and refund notifications"
                 onPress={() => {
                   safeHaptics.selectionAsync();
                   setCheckScope(!checkScope);
@@ -179,6 +185,9 @@ export default function PrivacyConsentModal({
               disabled={!canProceed}
               onPress={handleProceed}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Accept and enable SMS sync"
+              accessibilityState={{ disabled: !canProceed }}
             >
               <Feather name="check-circle" size={18} color="#FFF" style={{ marginRight: 8 }} />
               <Text style={styles.confirmBtnText}>Accept & Enable SMS Sync</Text>
@@ -191,6 +200,8 @@ export default function PrivacyConsentModal({
                 onClose();
               }}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Decline SMS sync"
             >
               <Text style={[styles.cancelBtnText, { color: colors.mutedForeground }]}>
                 Decline / Cancel

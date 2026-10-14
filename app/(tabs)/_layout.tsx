@@ -59,11 +59,11 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="chatbot"
+        name="history"
         options={{
-          title: "Assistant",
+          title: "Activity",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="message-square" size={size ?? 22} color={color} />
+            <Feather name="list" size={size ?? 22} color={color} />
           ),
         }}
       />
@@ -76,13 +76,7 @@ export default function TabLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="history"
-        options={{
-          href: null,
-          title: "History",
-        }}
-      />
+      <Tabs.Screen name="chatbot" options={{ href: null, title: "Assistant" }} />
     </Tabs>
   );
 }

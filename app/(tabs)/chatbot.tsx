@@ -21,9 +21,8 @@ import {
   useSpeechRecognitionEvent,
 } from "expo-speech-recognition";
 
-import { CATEGORIES, CategoryId, useExpenses, PaymentMode } from "@/context/ExpenseContext";
+import { CATEGORIES, CategoryId, Expense, useExpenses, PaymentMode } from "@/context/ExpenseContext";
 import { useHousehold } from "@/context/HouseholdContext";
-import { calculateEqualSplits } from "@/utils/splitMath";
 import { useReceivables } from "@/context/ReceivablesContext";
 import { useAuth } from "@/context/AuthContext";
 import { useSubscription } from "@/context/SubscriptionContext";
@@ -104,21 +103,30 @@ const MAX_BULK_EXPENSES = 20;
 const MAX_EXPENSE_AMOUNT = 10_000_000;
 
 interface ConvState {
-  step: "idle" | "awaiting_category" | "awaiting_support_desc" | "awaiting_confirmation" | "awaiting_bulk_confirmation";
+  step: "idle" | "awaiting_category" | "awaiting_support_desc" | "awaiting_support_confirmation" | "awaiting_confirmation" | "awaiting_bulk_confirmation" | "awaiting_edit_review" | "awaiting_edit_final";
   amount?: number;
   categoryId?: CategoryId;
   note?: string;
   date?: string;
   bulkExpenses?: ParsedExpense[];
+  supportMessage?: string;
+  editExpenseId?: string;
+  editOriginalAmount?: number;
+  editNewAmount?: number;
 }
+
+const AFFIRMATIVE_REPLIES = new Set(["yes", "yeah", "y", "ok", "okay", "sure", "confirm", "save", "haan", "ha", "haanji", "bilkul", "ji", "हाँ", "हां", "जी", "✅", "👍"]);
+const NEGATIVE_REPLIES = new Set(["no", "n", "nope", "cancel", "discard", "stop", "nahi", "nahin", "mat karo", "नहीं", "नही", "मत", "❌", "👎"]);
+const isAffirmativeReply = (value: string) => AFFIRMATIVE_REPLIES.has(value.trim().toLowerCase());
+const isNegativeReply = (value: string) => NEGATIVE_REPLIES.has(value.trim().toLowerCase());
 
 // ─── Category keywords ────────────────────────────────────────────────────────
 const CATEGORY_KEYWORDS: Record<CategoryId, string[]> = {
-  travel: ["travel","taxi","cab","uber","ola","flight","train","bus","ticket","fuel","petrol","diesel","auto","metro"],
-  groceries: ["grocery","groceries","supermarket","milk","egg","veg","vegetable","fruit","reliance","blinkit","zepto","instamart","bazaar","mart"],
+  travel: ["travel","taxi","cab","uber","ola","flight","train","bus","ticket","fuel","petrol","diesel","auto","metro","safar","rickshaw","यात्रा"],
+  groceries: ["grocery","groceries","supermarket","milk","egg","veg","vegetable","fruit","reliance","blinkit","zepto","instamart","bazaar","mart","rashan","sabzi","kirana","राशन","सब्जी"],
   rent: ["rent","lease","landlord","flat","room","pg"],
   maid_cook: ["maid","cook","househelp","house help","bai","cleaning","chef","kamwali","cook salary","maid salary"],
-  food_outside: ["food","restaurant","swiggy","zomato","cafe","coffee","starbucks","tea","lunch","dinner","breakfast","pizza","burger","biryani","dhaba"],
+  food_outside: ["food","restaurant","swiggy","zomato","cafe","coffee","starbucks","tea","lunch","dinner","breakfast","pizza","burger","biryani","dhaba","khana","chai","nashta","खाना","चाय","नाश्ता"],
   transfer: ["transfer","send","sent","wire","gpay","phonepe","paytm"],
   utilities: ["utility","utilities","electricity","water","gas","internet","wifi","broadband","power"],
   shopping: ["shopping","clothes","dress","shoe","shoes","amazon","flipkart","myntra","zara","h&m"],
@@ -176,7 +184,7 @@ function parseTransactionLine(line: string, fallbackDate?: string): (ParsedExpen
   if (!lower) return null;
 
   // 1. Parse Amount
-  const amountRegex = /(?:spent|spend|spended|add|log|pay|paid|buying|bought|buy|cost|worth|rupees|ruppes|rupee|rs\.?|inr|₹|bucks)\s*([\d,]+(?:\.\d{1,2})?)|([,\d]+(?:\.\d{1,2})?)\s*(?:rupees|ruppes|rupee|rs\.?|inr|₹|bucks|spent|spend|on)/i;
+  const amountRegex = /(?:spent|spend|spended|add|log|pay|paid|buying|bought|buy|cost|worth|rupees|ruppes|rupee|rs\.?|inr|₹|bucks|kharch|kharcha|diye|diya|liye)\s*([\d,]+(?:\.\d{1,2})?)|([,\d]+(?:\.\d{1,2})?)\s*(?:rupees|ruppes|rupee|rs\.?|inr|₹|bucks|spent|spend|kharch|ka|ke|kiye)/i;
   const amountMatch = line.match(amountRegex) || line.match(/\b(\d+(?:\.\d{1,2})?)\b/);
   if (!amountMatch) return null;
 
@@ -189,11 +197,14 @@ function parseTransactionLine(line: string, fallbackDate?: string): (ParsedExpen
   let matchedDateText = "";
   let dateExplicitlyMatched = false;
 
-  if (/\b(today)\b/i.test(line)) {
+  if (/\b(today|aaj)\b|आज/i.test(line)) {
     date = todayISO();
-    matchedDateText = "today";
+    matchedDateText = /आज/i.test(line) ? "आज" : /\baaj\b/i.test(line) ? "aaj" : "today";
     dateExplicitlyMatched = true;
-  } else if (/\b(yesterday)\b/i.test(line)) {
+  // "Kal" can mean either yesterday or tomorrow in Hindi/Hinglish. Do not
+  // infer a financial date from it; the review screen must use an unambiguous
+  // date before an expense can be saved.
+  } else if (/\byesterday\b/i.test(line)) {
     const d = new Date();
     d.setDate(d.getDate() - 1);
     date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -385,21 +396,54 @@ function extractDateFromText(text: string): string | null {
   return null;
 }
 
+type ExpenseEditRequest = { expense: Expense; newAmount: number };
+
+/**
+ * Finds one personal expense for an amount-only edit. Ambiguity is intentional:
+ * the assistant refuses to guess when more than one record could match.
+ */
+function findExpenseEditRequest(text: string, expenses: Expense[]): ExpenseEditRequest | null | "ambiguous" {
+  const amountChange = text.match(/\bfrom\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:to|into)\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/i)
+    || text.match(/\bto\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d{1,2})?)/i);
+  if (!amountChange) return null;
+
+  const sourceAmount = amountChange.length > 2 && amountChange[2] ? Number(amountChange[1].replace(/,/g, "")) : undefined;
+  const targetAmount = Number((amountChange.length > 2 && amountChange[2] ? amountChange[2] : amountChange[1]).replace(/,/g, ""));
+  if (!Number.isFinite(targetAmount) || targetAmount <= 0 || targetAmount > MAX_EXPENSE_AMOUNT) return null;
+
+  const requestedDate = extractDateFromText(text);
+  const searchTerms = text
+    .toLowerCase()
+    .replace(/\b(edit|change|update|correct|modify|expense|transaction|payment|entry|from|to|into|rs\.?|inr)\b/g, " ")
+    .replace(/[₹\d,]+(?:\.\d{1,2})?/g, " ")
+    .split(/\s+/)
+    .filter((term) => term.length > 2);
+
+  const matches = expenses.filter((expense) => {
+    if (expense.householdExpenseId || expense.isHouseholdSplitShare) return false;
+    if (sourceAmount !== undefined && Math.abs(expense.amount - sourceAmount) > 0.01) return false;
+    if (requestedDate && expense.date !== requestedDate) return false;
+    const searchable = `${expense.note} ${expense.merchant || ""} ${CATEGORIES.find((c) => c.id === expense.categoryId)?.label || ""}`.toLowerCase();
+    return searchTerms.length === 0 || searchTerms.every((term) => searchable.includes(term));
+  });
+
+  if (matches.length !== 1) return matches.length > 1 ? "ambiguous" : null;
+  return { expense: matches[0], newAmount: targetAmount };
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function ChatbotScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const { user } = useAuth();
-  const { addExpense, addMultipleExpenses, getCategoryTotalsForMonth, getTotalForMonth, expenses } = useExpenses();
+  const { addExpense, addMultipleExpenses, getCategoryTotalsForMonth, getTotalForMonth, expenses, updateExpense } = useExpenses();
   const { getPendingReceivables, getTotalPendingAmount } = useReceivables();
   const {
     currentHousehold,
     balances,
     pairwiseDebts,
     userNetBalance,
-    addHouseholdExpense,
-    settleUp,
   } = useHousehold();
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -489,7 +533,7 @@ export default function ChatbotScreen() {
     setMessages([{
       id: "welcome",
       sender: "bot",
-      text: `${g}, ${firstName}! I'm **WhisperBot** — your app and expense assistant.\n\nI can help you log expenses, analyse your real spending, explain app features, generate statements, review refunds, and raise support tickets.\n\nI only answer finance questions from your logged data. If I do not have enough data, I will say so instead of guessing.`,
+      text: `${g}, ${firstName}. I work only with the information in your WhisperLedger.\n\nYou can log a personal expense, ask about your recorded spending, or get help using the app. I show a review before saving anything, and I never create shared expenses or settlements from chat.\n\nTry: “Aaj chai pe 80 kharch hue”, “Is month kitna spend hua?”, or “Change coffee from 120 to 150”.`,
       timestamp: new Date(),
     }]);
   }, [user]);
@@ -589,10 +633,15 @@ export default function ChatbotScreen() {
       lower === "support"
     ) intents.push("support");
 
+    const isEditRequest =
+      /\b(edit|change|update|correct|modify)\b/i.test(lower) &&
+      (/\b(expense|transaction|payment|entry)\b/i.test(lower) || /\b(from|to)\s*(?:₹|rs\.?|inr)?\s*\d/i.test(lower));
+    if (isEditRequest) intents.push("edit_expense");
+
     // Expense log. Detect this before analytics so "spent 150 on lunch" does not become a report query.
     const expenseRegex = /(?:spent|spend|spended|paid|pay|buying|bought|buy|add|log|cost|worth|₹|rs\.?\s*\d|\d\s*rs\.?|inr)\s*[\d,]+|[\d,]+\s*(?:rupees|ruppes|rupee|rs\.?|inr|₹|bucks)/i;
     const isExpenseLog = expenseRegex.test(lower) || parseTransactionLine(lower) !== null;
-    if (isExpenseLog) intents.push("expense");
+    if (isExpenseLog && !isEditRequest) intents.push("expense");
 
     // PDF / statement
     if (lower.includes("pdf") || lower.includes("statement") || lower.includes("download report") ||
@@ -601,7 +650,7 @@ export default function ChatbotScreen() {
 
     // Universal spend and analysis query
     const queryPhrases = [
-      "how much", "spending", "spent", "total for", "kitna spend", "my spend", 
+      "how much", "spending", "spent", "total for", "kitna spend", "kitna kharch", "kitna hua", "kharcha", "कितना", "खर्च", "my spend",
       "what did i spend", "expense list", "show transaction", "tell me my spend",
       "analyse", "analyze", "breakdown", "overview", "monthly report", "how am i doing", 
       "show spending", "show budget", "where can i save", "manage my money", "spending advice",
@@ -640,7 +689,7 @@ export default function ChatbotScreen() {
     if (lower.includes("secure") || lower.includes("privacy") || lower.includes("safe") || lower.includes("data safe")) intents.push("security");
 
     // SMS sync
-    if (lower.includes("sms") || lower.includes("auto detect") || lower.includes("auto sync")) intents.push("sms");
+    if (lower.includes("sms") || lower.includes("auto detect") || lower.includes("auto sync") || lower.includes("संदेश")) intents.push("sms");
 
     // Profile settings guidance
     if (
@@ -653,11 +702,11 @@ export default function ChatbotScreen() {
     ) intents.push("profile_guide");
 
     // Ledger / expense management guidance
-    if (
+    if (!isEditRequest && (
       lower.includes("delete expense") || lower.includes("delete transaction") || lower.includes("remove expense") || lower.includes("remove transaction") ||
       lower.includes("edit expense") || lower.includes("edit transaction") || lower.includes("change expense") || lower.includes("change transaction") ||
       lower.includes("update transaction") || lower.includes("correct transaction") || lower.includes("modify transaction") || lower.includes("delete log")
-    ) intents.push("ledger_guide");
+    )) intents.push("ledger_guide");
 
     // Money Recovery intent
     if (
@@ -722,6 +771,71 @@ export default function ChatbotScreen() {
       return;
     }
 
+    // Editing a ledger entry has two separate, explicit approvals. This keeps a
+    // conversational typo from changing a financial record.
+    if (convState.step === "awaiting_edit_review") {
+      if (isNegativeReply(lower)) {
+        setConvState({ step: "idle" });
+        addMessage("bot", "No changes were made.");
+        setTyping(false);
+        return;
+      }
+      if (!isAffirmativeReply(lower)) {
+        addMessage("bot", "Please reply **Yes** to continue to the final check, or **Cancel** to keep the expense unchanged.");
+        setTyping(false);
+        return;
+      }
+      setConvState({
+        step: "awaiting_edit_final",
+        editExpenseId: convState.editExpenseId,
+        editOriginalAmount: convState.editOriginalAmount,
+        editNewAmount: convState.editNewAmount,
+      });
+      addMessage("bot", `Final check: this will change the amount to **₹${convState.editNewAmount?.toLocaleString("en-IN")}**. Reply **Update** to save it, or **Cancel** to stop.`);
+      setTyping(false);
+      return;
+    }
+
+    if (convState.step === "awaiting_edit_final") {
+      if (isNegativeReply(lower)) {
+        setConvState({ step: "idle" });
+        addMessage("bot", "No changes were made.");
+        setTyping(false);
+        return;
+      }
+      if (lower !== "update") {
+        addMessage("bot", "For safety, reply **Update** to save this change, or **Cancel** to stop.");
+        setTyping(false);
+        return;
+      }
+
+      const currentExpense = expenses.find((expense) => expense.id === convState.editExpenseId);
+      if (!currentExpense || currentExpense.householdExpenseId || currentExpense.isHouseholdSplitShare) {
+        setConvState({ step: "idle" });
+        addMessage("bot", "That expense is no longer available for a safe edit. Please open History and review it there.");
+        setTyping(false);
+        return;
+      }
+      if (Math.abs(currentExpense.amount - (convState.editOriginalAmount || 0)) > 0.01) {
+        setConvState({ step: "idle" });
+        addMessage("bot", "That expense changed while we were checking it, so I did not overwrite it. Please start again with the latest value.");
+        setTyping(false);
+        return;
+      }
+
+      try {
+        await updateExpense(currentExpense.id, { amount: convState.editNewAmount! });
+        safeHaptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        addMessage("bot", `Updated. **${currentExpense.note || "Expense"}** is now **₹${convState.editNewAmount?.toLocaleString("en-IN")}**.`);
+      } catch (error: any) {
+        addMessage("bot", `I could not update that expense. ${error?.message || "Please try again from History."}`);
+      } finally {
+        setConvState({ step: "idle" });
+        setTyping(false);
+      }
+      return;
+    }
+
     // ── Context: awaiting support description ──────────────────────────────
     if (convState.step === "awaiting_support_desc") {
       if (text.trim().length < MIN_SUPPORT_MESSAGE_LENGTH) {
@@ -730,6 +844,28 @@ export default function ChatbotScreen() {
         return;
       }
 
+      setConvState({ step: "awaiting_support_confirmation", supportMessage: text });
+      addMessage("bot", `I can send this to support:\n\n“${text}”\n\nReply **Confirm** to submit it, or **Cancel** to keep it private.`);
+      setTyping(false);
+      return;
+    }
+
+    // Support tickets communicate a user message externally, so always require
+    // an explicit confirmation after showing the exact text that will be sent.
+    if (convState.step === "awaiting_support_confirmation") {
+      if (isNegativeReply(lower)) {
+        setConvState({ step: "idle" });
+        addMessage("bot", "Cancelled. I did not send anything to support.");
+        setTyping(false);
+        return;
+      }
+      if (!isAffirmativeReply(lower)) {
+        addMessage("bot", "Reply **Confirm** to submit the ticket, or **Cancel** to discard it.");
+        setTyping(false);
+        return;
+      }
+
+      const supportMessage = convState.supportMessage || "";
       setConvState({ step: "idle" });
       try {
         if (user) {
@@ -738,7 +874,7 @@ export default function ChatbotScreen() {
             userEmail: user.email || "",
             userName: user.name || "Valued User",
             subject: "Chatbot Support Query",
-            message: text,
+            message: supportMessage,
             status: "received",
             createdAt: serverTimestamp(),
           });
@@ -746,7 +882,7 @@ export default function ChatbotScreen() {
         addMessage("bot", `Done! ✅ Your ticket has been filed with our team.`, {
           type: "support_success",
           title: "Support Ticket Raised",
-          body: `Issue:\n"${text}"\n\nStatus: Pending\nWe'll review it soon!`,
+          body: `Issue:\n"${supportMessage}"\n\nStatus: Pending\nWe'll review it soon!`,
         });
         addMessage("bot", `Anything else I can help with, ${firstName}? 😊`);
       } catch (err: any) {
@@ -780,14 +916,12 @@ export default function ChatbotScreen() {
     if (convState.step === "awaiting_confirmation") {
       const { amount, categoryId, note, date } = convState;
       const catLabel = CATEGORIES.find((c) => c.id === categoryId)?.label || "Other";
-      const YES = ["yes","yeah","y","ok","okay","sure","confirm","save","log","haan","ha","bilkul","✅","👍"];
-      const NO  = ["no","nope","n","cancel","discard","stop","nahi","❌","👎","nah"];
-      if (YES.some((w) => lower === w || lower.includes(w))) {
+      if (isAffirmativeReply(lower)) {
         setConvState({ step: "idle" });
         await executeAddExpense(amount!, categoryId!, note || "", date);
         return;
       }
-      if (NO.some((w) => lower === w || lower.includes(w))) {
+      if (isNegativeReply(lower)) {
         setConvState({ step: "idle" });
         addMessage("bot", `Alright, I've discarded that! 🗑️ Let me know whenever you want to log something.`);
         setTyping(false);
@@ -801,9 +935,7 @@ export default function ChatbotScreen() {
     // ── Context: awaiting bulk confirmation ───────────────────────────────
     if (convState.step === "awaiting_bulk_confirmation") {
       const { bulkExpenses } = convState;
-      const YES = ["yes","yeah","y","ok","okay","sure","confirm","save","log","haan","ha","bilkul","✅","👍"];
-      const NO  = ["no","nope","n","cancel","discard","stop","nahi","❌","👎","nah"];
-      if (YES.some((w) => lower === w || lower.includes(w))) {
+      if (isAffirmativeReply(lower)) {
         setConvState({ step: "idle" });
         if (bulkExpenses && bulkExpenses.length > 0) {
           setTyping(true);
@@ -827,7 +959,7 @@ export default function ChatbotScreen() {
         }
         return;
       }
-      if (NO.some((w) => lower === w || lower.includes(w))) {
+      if (isNegativeReply(lower)) {
         setConvState({ step: "idle" });
         addMessage("bot", `Cancelled! 🗑️ I've discarded all parsed transactions.`);
         setTyping(false);
@@ -993,12 +1125,12 @@ export default function ChatbotScreen() {
         }
 
         case "sms": {
-          addMessage("bot", `📲 **Smart SMS Auto-Sync!**\n\nWith your permission, I scan incoming bank/UPI SMS alerts, extract the amount & merchant, and ask you to confirm before logging. It's like having a personal finance secretary — free and way cooler 😎`);
+          addMessage("bot", `**SMS expense capture**\n\nWith your permission, WhisperLedger checks relevant bank and UPI SMS alerts on your device, extracts a possible amount and merchant, then asks for approval before anything is recorded. You can switch it off anytime from Profile.`);
           break;
         }
 
         case "profile_guide": {
-          addMessage("bot", `I can definitely guide you with your profile & display options! ⚙️\n\nGo to the **Profile** tab, and you can:\n\n✏️ **Change Name**: Tap the edit pencil icon next to your name.\n\n📷 **Change Avatar**: Tap your user profile picture circle to pick a square image (under 5MB).\n\n🌓 **Display Mode**: Toggle Dark, Light, or System Auto theme under **Theme Preference**!\n\n📲 **Auto-Sync**: Switch the 'Auto-Sync SMS Expenses' toggle to automatically log GPay/bank texts.\n\n🚪 **Sign Out**: Tap the Sign Out button at the bottom of the section.`);
+          addMessage("bot", `Open the **Profile** tab to manage your account and preferences.\n\n• **Name and photo:** use the edit controls beside your profile.\n• **Appearance:** choose Dark, Light, or System under Theme Preference.\n• **SMS expense capture:** enable it to review detected bank/UPI SMS expenses before saving.\n• **Sign out:** available at the bottom of the screen.`);
           break;
         }
 
@@ -1007,9 +1139,35 @@ export default function ChatbotScreen() {
           break;
         }
 
+        case "edit_expense": {
+          const editRequest = findExpenseEditRequest(text, expenses);
+          if (editRequest === "ambiguous") {
+            addMessage("bot", "I found more than one matching expense, so I will not guess. Include the old amount and a clear label, for example: **Change coffee from 120 to 150**.");
+            break;
+          }
+          if (!editRequest) {
+            addMessage("bot", "I can safely change the amount of one personal expense. Try: **Change coffee from 120 to 150**. Shared expenses must be edited from Household Space.");
+            break;
+          }
+
+          const { expense, newAmount } = editRequest;
+          const category = CATEGORIES.find((item) => item.id === expense.categoryId)?.label || "Other";
+          setConvState({
+            step: "awaiting_edit_review",
+            editExpenseId: expense.id,
+            editOriginalAmount: expense.amount,
+            editNewAmount: newAmount,
+          });
+          addMessage(
+            "bot",
+            `I found **${expense.note || category}** on **${expense.date.split("-").reverse().join("/")}**.\n\nCurrent amount: **₹${expense.amount.toLocaleString("en-IN")}**\nNew amount: **₹${newAmount.toLocaleString("en-IN")}**\n\nFirst check: reply **Yes** to continue, or **Cancel** to keep it unchanged.`
+          );
+          break;
+        }
+
         case "support": {
           setConvState({ step: "awaiting_support_desc" });
-          addMessage("bot", `Of course, ${firstName}! I'll raise a ticket to our team right now 🛠️\n\nJust describe your issue in your next message — as much detail as you like — and I'll file it instantly.`);
+          addMessage("bot", `I can prepare a ticket for our support team. Please describe what happened, where it happened, and what you expected. I will show you the exact message for approval before sending it.`);
           break;
         }
 
@@ -1036,33 +1194,14 @@ export default function ChatbotScreen() {
             addMessage("bot", `You haven't joined a household yet, ${firstName}! 🏠\n\nCreate your flat or join using an invite code under **Profile ➔ Household & Flatmates**.`);
             break;
           }
-          const parsed = parseTransactionLine(text);
-          if (parsed && parsed.amount > 0) {
-            const membersList = Object.values(currentHousehold.members || {});
-            if (membersList.length === 0) {
-              addMessage("bot", `Your flat doesn't have any other members yet! Share your invite code: **${currentHousehold.inviteCode}**`);
-              break;
-            }
-            const splits = calculateEqualSplits(parsed.amount, membersList);
-            try {
-              await addHouseholdExpense({
-                amount: parsed.amount,
-                categoryId: parsed.categoryId,
-                paymentMode: parsed.paymentMode || "upi",
-                note: parsed.note || "Shared flat expense",
-                date: parsed.date,
-                payerUid: user?.uid || "",
-                payerName: user?.name || "You",
-                splitType: "equal",
-                splits,
-              });
-              safeHaptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              addMessage("bot", `🎉 Done, ${firstName}! Logged **₹${parsed.amount.toLocaleString("en-IN")}** for **${parsed.note || "Shared Spend"}** split equally in **${currentHousehold.name}**! 🏠\n\nAll members have received split notifications.`);
-            } catch (err: any) {
-              addMessage("bot", `Couldn't save household split: ${err.message || "Error"}`);
-            }
+          const splitDraft = parseTransactionLine(text);
+          if (splitDraft && splitDraft.amount > 0) {
+            addMessage(
+              "bot",
+              `I found a shared expense draft: **₹${splitDraft.amount.toLocaleString("en-IN")}** for **${splitDraft.note || "Shared expense"}**.\n\nTo protect everyone in ${currentHousehold.name}, I will not create or notify a split from chat. Open **Household Space → Add shared expense** to review members, amounts and payer before sending it.`
+            );
           } else {
-            addMessage("bot", `To split a bill with your flatmates, just tell me:\n• *"Split 1200 groceries"*\n• *"Split 3000 maid with flatmates"*`);
+            addMessage("bot", `For a shared bill, use **Household Space → Add shared expense**. It lets you review the payer, members and each amount before anyone is notified.`);
           }
           break;
         }
@@ -1090,37 +1229,18 @@ export default function ChatbotScreen() {
             addMessage("bot", `You need to be in a household to settle flat dues, ${firstName}!`);
             break;
           }
-          const amtMatch = text.match(/(?:₹|rs\.?\s*|inr\s*)?(\d+(?:\.\d{1,2})?)/i);
-          const amt = amtMatch ? parseFloat(amtMatch[1]) : 0;
-          const members = Object.values(currentHousehold.members || {});
-          const matchedMember = members.find(m => m.uid !== user?.uid && text.toLowerCase().includes(m.name.toLowerCase()));
-          
-          if (matchedMember && amt > 0) {
-            try {
-              await settleUp(matchedMember.uid, amt, `Settlement via WhisperBot`);
-              safeHaptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              addMessage("bot", `✅ All settled, ${firstName}! Recorded payment of **₹${amt.toFixed(2)}** with **${matchedMember.name}** in ${currentHousehold.name}. Flat balance has been updated! 🤝`);
-            } catch (err: any) {
-              addMessage("bot", `Could not record settlement: ${err.message}`);
-            }
-          } else {
-            const myUid = user?.uid || "";
-            const myDebts = pairwiseDebts.filter(d => d.fromUid === myUid || d.toUid === myUid);
-            if (myDebts.length === 0) {
-              addMessage("bot", `All flat dues are already completely settled in **${currentHousehold.name}**! 🎉`);
-            } else {
-              const summary = myDebts.map(d => d.fromUid === myUid ? `• You owe ${d.toName} ₹${d.amount.toFixed(2)}` : `• ${d.fromName} owes you ₹${d.amount.toFixed(2)}`).join("\n");
-              addMessage("bot", `Here are your pending dues in **${currentHousehold.name}**:\n\n${summary}\n\nTo settle, just say: *"settle [amount] with [name]"*!`);
-            }
-          }
+          addMessage(
+            "bot",
+            `I can explain your household balances, but I will not record a settlement from a chat message. Open **Household Space** and use **Settle Up** to review the person, amount and note before saving.`
+          );
           break;
         }
 
         case "help": {
           addMessage("bot", `Sure ${firstName}! Here's everything I can do for you 💡`, {
             type: "help_guide",
-            title: "WhisperBot Cheat Sheet",
-            body: `Log Expenses:\n  "Spent 150 on coffee"\n  "Log 500 for groceries"\n\nAnalyse Spending:\n  "How much on food this month?"\n  "Where can I save money?"\n  "Show my recent expenses"\n\nApp Actions:\n  "Download my statement"\n  "Raise a support ticket"\n  "How do I enable SMS sync?"`,
+            title: "Assistant guide",
+            body: `Log Expenses:\n  "Spent 150 on coffee"\n  "Log 500 for groceries"\n\nEdit an expense:\n  "Change coffee from 120 to 150"\n  I will show two clear checks before saving.\n\nAnalyse Spending:\n  "How much on food this month?"\n  "Where can I save money?"\n  "Show my recent expenses"\n\nApp Actions:\n  "Download my statement"\n  "Raise a support ticket"\n  "How do I enable SMS sync?"`,
           });
           break;
         }
@@ -1474,7 +1594,7 @@ export default function ChatbotScreen() {
         </View>
         <View>
           <Text style={styles.headerTitle}>WhisperBot</Text>
-          <Text style={styles.headerSub}>🟢 Secure Finance Intelligence</Text>
+          <Text style={styles.headerSub}>Private, review-first assistance</Text>
         </View>
       </View>
 
@@ -1620,7 +1740,7 @@ export default function ChatbotScreen() {
               style={[styles.input, { paddingVertical: Platform.OS === "ios" ? 4 : 0 }]}
               value={inputText}
               onChangeText={setInputText}
-              placeholder="Message WhisperBot..."
+              placeholder="Ask about your expenses or the app"
               placeholderTextColor={colors.mutedForeground}
               maxLength={MAX_CHAT_INPUT_LENGTH}
               multiline={true}

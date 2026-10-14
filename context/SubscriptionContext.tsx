@@ -1,14 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, where } from "firebase/firestore";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { useAuth } from "./AuthContext";
 import { db } from "@/lib/firebase";
 import { safeHaptics } from "@/utils/haptics";
 import * as Haptics from "expo-haptics";
 import {
-  APP_TRIAL_DAYS,
   DEFAULT_PLAN_CONFIG,
-  createAppTrialSubscription,
   hasActiveProAccess,
   isUpgradeablePlan,
   normalizePlanConfig,
@@ -218,42 +216,39 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return false;
   };
 
-  const startTrial = async (): Promise<boolean> => {
+  const createAccessRequest = async (
+    requestType: "trial_activation" | "upgrade_activation",
+    requestedPlan: "trial" | "monthly" | "yearly"
+  ): Promise<boolean> => {
     if (!user) return false;
-    if (isPro) {
-      closePaywall();
-      return true;
-    }
-    if (trialUsed) return false;
-
-    const trialSubscription = createAppTrialSubscription();
     try {
-      await setDoc(doc(db, "users", user.uid), { subscription: trialSubscription }, { merge: true });
       await addDoc(collection(db, "subscription_requests"), {
         userId: user.uid,
         email: user.email,
-        requestedPlan: "trial",
-        requestType: "trial_activation",
-        status: "approved",
-        createdAt: trialSubscription.startedAt,
+        requestedPlan,
+        requestType,
+        // A client may request access; only trusted billing/admin services can
+        // approve it and write a subscription entitlement.
+        status: "pending",
+        paymentStatus: requestType === "trial_activation" ? "not_required" : "not_started",
+        source: "mobile_app",
+        createdAt: Date.now(),
         createdAtServer: serverTimestamp(),
-        approvedBy: "self_service_app_trial",
-        trialDays: APP_TRIAL_DAYS,
       });
-      setSub(trialSubscription);
-      await cacheSubscription(user.uid, trialSubscription);
       safeHaptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      closePaywall();
       return true;
     } catch (e) {
-      console.error("[Subscription] Failed to activate trial:", e);
+      console.error("[Subscription] Failed to create access request:", e);
       return false;
     }
   };
 
-  /**
-   * Activates paid Pro plan immediately and logs subscription record.
-   */
+  const startTrial = async (): Promise<boolean> => {
+    if (!user || isPro || trialUsed || pendingProRequest) return false;
+    return createAccessRequest("trial_activation", "trial");
+  };
+
+  /** Creates a request; a verified billing or admin service grants access. */
   const upgradePlan = async (plan: "monthly" | "yearly", isTrial = false): Promise<boolean> => {
     if (!user) return false;
     if (isTrial) return startTrial();
@@ -263,43 +258,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
     if (!isUpgradeablePlan(plan)) return false;
 
-    const durationDays = plan === "yearly" ? 365 : 30;
-    const now = Date.now();
-    const expiresAt = now + durationDays * 24 * 60 * 60 * 1000;
-
-    const proSub: UserSubscription = {
-      tier: "pro",
-      plan,
-      status: "active",
-      startedAt: now,
-      expiresAt,
-      isLifetime: false,
-    };
-
-    try {
-      await setDoc(doc(db, "users", user.uid), { subscription: proSub }, { merge: true });
-      await addDoc(collection(db, "subscription_requests"), {
-        userId: user.uid,
-        email: user.email,
-        requestedPlan: plan,
-        requestType: "upgrade_activation",
-        status: "approved",
-        paymentStatus: "completed",
-        paymentMode: "in_app",
-        createdAt: now,
-        createdAtServer: serverTimestamp(),
-        expiresAt,
-      });
-
-      setSub(proSub);
-      await cacheSubscription(user.uid, proSub);
-      safeHaptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      closePaywall();
-      return true;
-    } catch (e) {
-      console.error("[Subscription] Failed to upgrade plan:", e);
-      return false;
-    }
+    if (pendingProRequest) return false;
+    return createAccessRequest("upgrade_activation", plan);
   };
 
   const cancelSubscription = async () => {

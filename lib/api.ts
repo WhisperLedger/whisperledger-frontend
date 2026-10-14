@@ -1,9 +1,10 @@
 import { Platform } from 'react-native';
 import { SecureSession, SECURE_KEYS } from './secureStorage';
+import { requireApiBaseUrl, runtimeConfig } from '@/config/runtime';
 
 // Default endpoint for local testing: 10.0.2.2 for Android Emulator, localhost for iOS/web
-const DEFAULT_HOST = Platform.OS === 'android' ? 'http://10.0.2.2:8080/api/v1' : 'http://localhost:8080/api/v1';
-export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_HOST;
+const LOCAL_API_URL = Platform.OS === 'android' ? 'http://10.0.2.2:8080/api/v1' : 'http://localhost:8080/api/v1';
+export const API_BASE_URL = runtimeConfig.apiBaseUrl || LOCAL_API_URL;
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -21,6 +22,30 @@ export interface ApiResponse<T = any> {
   };
 }
 
+type ApiCurrentUser = {
+  id: string;
+  full_name?: string;
+  email?: string;
+  avatar_url?: string;
+};
+
+type ApiHouseholdMember = {
+  user_id: string;
+  full_name?: string;
+  email?: string;
+  role?: "admin" | "member";
+};
+
+type ApiHousehold = {
+  id: string;
+  name: string;
+  invite_code: string;
+  currency?: string;
+  created_by: string;
+  created_at?: string;
+  members?: ApiHouseholdMember[];
+};
+
 class BackendClient {
   private async getHeaders(): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
@@ -36,7 +61,8 @@ class BackendClient {
   }
 
   async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
-    const url = `${API_BASE_URL}${endpoint}`;
+    const baseUrl = runtimeConfig.dataBackend === 'api' ? requireApiBaseUrl() : API_BASE_URL;
+    const url = `${baseUrl}${endpoint}`;
     const headers = await this.getHeaders();
 
     try {
@@ -92,7 +118,7 @@ class BackendClient {
   }
 
   async getMe() {
-    return this.request('/auth/me');
+    return this.request<{ user: ApiCurrentUser }>('/auth/me');
   }
 
   // --- 3-Way Outflow Ledger APIs ---
@@ -107,7 +133,7 @@ class BackendClient {
     household_id?: string;
     splits?: Array<{ user_id: string; amount: number }>;
   }) {
-    return this.request('/expenses', {
+    return this.request<{ id: string }>('/expenses', {
       method: 'POST',
       body: JSON.stringify(expense),
     });
@@ -118,7 +144,7 @@ class BackendClient {
     if (params?.limit) query.set('limit', String(params.limit));
     if (params?.offset) query.set('offset', String(params.offset));
     if (params?.outflow_type) query.set('outflow_type', params.outflow_type);
-    return this.request(`/expenses?${query.toString()}`);
+    return this.request<Array<{ id: string; [key: string]: unknown }>>(`/expenses?${query.toString()}`);
   }
 
   async getSummary(startDate?: string, endDate?: string) {
@@ -130,21 +156,21 @@ class BackendClient {
 
   // --- Household & Minimum-Cash-Flow APIs ---
   async createHousehold(name: string, currency: string = 'INR') {
-    return this.request('/households', {
+    return this.request<ApiHousehold>('/households', {
       method: 'POST',
       body: JSON.stringify({ name, currency }),
     });
   }
 
   async joinHousehold(inviteCode: string) {
-    return this.request('/households/join', {
+    return this.request<ApiHousehold>('/households/join', {
       method: 'POST',
       body: JSON.stringify({ invite_code: inviteCode }),
     });
   }
 
   async getHouseholdMe() {
-    return this.request('/households/me');
+    return this.request<ApiHousehold>('/households/me');
   }
 
   async getHouseholdBalances(householdId: string) {

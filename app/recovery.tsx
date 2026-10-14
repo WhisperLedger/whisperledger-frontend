@@ -1,5 +1,4 @@
 import { Feather } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -24,13 +23,12 @@ import type { Receivable, ReceivableCategory } from "@/types/receivable";
 import { CATEGORY_LABELS } from "@/types/receivable";
 import { safeHaptics } from "@/utils/haptics";
 import { exportReceivablesToCSV } from "@/utils/exportHelper";
-import { iconSurface, isDarkPalette } from "@/utils/designSystem";
+import { iconSurface } from "@/utils/designSystem";
 
 export default function MoneyRecoveryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { receivables, getPendingReceivables, getTotalPendingAmount, getTotalRecoveredAmount } = useReceivables();
-  const isDark = isDarkPalette(colors);
 
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -88,9 +86,9 @@ export default function MoneyRecoveryScreen() {
           <Feather name="arrow-left" size={20} color={colors.foreground} />
         </TouchableOpacity>
         <View style={{ flex: 1, alignItems: "center" }}>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]}>Money Recovery Hub</Text>
+          <Text style={[styles.headerTitle, { color: colors.foreground }]}>Money owed back</Text>
           <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>
-            Post-purchase Money Recovery Agent
+            Track refunds and money people need to return
           </Text>
         </View>
         <TouchableOpacity
@@ -112,10 +110,7 @@ export default function MoneyRecoveryScreen() {
 
       {/* Summary Cards Row */}
       <View style={styles.statsRow}>
-        <LinearGradient
-          colors={isDark ? ["#0B1224", "#0E1830"] : ["#F0F7FF", "#FFFFFF"]}
-          style={[styles.statBox, { borderColor: colors.border }]}
-        >
+        <View style={[styles.statBox, { borderColor: colors.border, backgroundColor: colors.card }]}>
           <Text style={styles.statLabel}>TOTAL OWED TO YOU</Text>
           <Text style={[styles.statAmount, { color: colors.primary }]}>
             ₹{pendingAmount.toLocaleString("en-IN")}
@@ -123,18 +118,15 @@ export default function MoneyRecoveryScreen() {
           <Text style={[styles.statSub, { color: colors.mutedForeground }]}>
             {pendingList.length} active case{pendingList.length !== 1 ? "s" : ""}
           </Text>
-        </LinearGradient>
+        </View>
 
-        <LinearGradient
-          colors={isDark ? ["#062418", "#081C15"] : ["#ECFDF5", "#FFFFFF"]}
-          style={[styles.statBox, { borderColor: "rgba(16, 185, 129, 0.3)" }]}
-        >
+        <View style={[styles.statBox, { borderColor: "rgba(16, 185, 129, 0.28)", backgroundColor: colors.card }]}>
           <Text style={styles.statLabel}>RECOVERED SO FAR</Text>
           <Text style={[styles.statAmount, { color: colors.success }]}>
             ₹{recoveredAmount.toLocaleString("en-IN")}
           </Text>
-          <Text style={[styles.statSub, { color: colors.mutedForeground }]}>Money secured ✓</Text>
-        </LinearGradient>
+          <Text style={[styles.statSub, { color: colors.mutedForeground }]}>Returned to you</Text>
+        </View>
       </View>
 
       {/* Search Bar */}
@@ -201,7 +193,7 @@ export default function MoneyRecoveryScreen() {
             onPress={() => setSelectedCategory("RECOVERED")}
           >
             <Text style={[styles.chipText, { color: colors.mutedForeground }, selectedCategory === "RECOVERED" && styles.chipTextActive]}>
-              Recovered ✓
+              Recovered
             </Text>
           </TouchableOpacity>
         </ScrollView>
@@ -228,7 +220,7 @@ export default function MoneyRecoveryScreen() {
               style={[styles.addBtnEmpty, { backgroundColor: colors.primary }]}
               onPress={() => setShowAddModal(true)}
             >
-              <Text style={styles.addBtnEmptyText}>+ Add Receivable</Text>
+              <Text style={styles.addBtnEmptyText}>Add money owed</Text>
             </TouchableOpacity>
           </View>
         }

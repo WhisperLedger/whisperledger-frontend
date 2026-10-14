@@ -79,6 +79,7 @@ export default function AnalyticsScreen() {
 
   const params = useLocalSearchParams<{ tab?: string }>();
   const [activeSegment, setActiveSegment] = useState<"charts" | "budgets">("charts");
+  const [showDetailedAnalysis, setShowDetailedAnalysis] = useState(false);
   const { isDark } = useTheme();
   const gradients = appGradients(colors);
   const { budgets, setBudget, deleteBudget, getBudgetForCategory } = useBudgets();
@@ -238,7 +239,12 @@ export default function AnalyticsScreen() {
   );
 
   const prev = getPrevMonth(year, month);
-  const prevTotalSpend = getTotalForMonth(prev.year, prev.month);
+  const prevMonthPrefix = `${prev.year}-${String(prev.month).padStart(2, "0")}`;
+  const prevTotalSpend = activeSpace === "household"
+    ? (householdExpenses || [])
+        .filter((expense) => expense?.date?.startsWith(prevMonthPrefix) && !expense.isSettlement)
+        .reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
+    : getTotalForMonth(prev.year, prev.month);
 
   const last6 = getLast6Months(now.getFullYear(), now.getMonth() + 1);
   const barMax = Math.max(...last6.map((m) => getTotalForMonth(m.year, m.month)), 1);
@@ -256,9 +262,9 @@ export default function AnalyticsScreen() {
     else setMonth((m) => m + 1);
   };
 
-  const topCategory = CATEGORIES.find(
-    (c) => totals[c.id] === Math.max(...CATEGORIES.map((x) => totals[x.id] || 0))
-  );
+  const topCategory = totalSpend > 0
+    ? CATEGORIES.find((c) => totals[c.id] === Math.max(...CATEGORIES.map((x) => totals[x.id] || 0)))
+    : null;
 
   const trackedDaysCount = new Set(expensesThisMonth.map((e: any) => e.date)).size;
   const avgPerDay = trackedDaysCount > 0 ? totalSpend / trackedDaysCount : 0;
@@ -1006,6 +1012,18 @@ export default function AnalyticsScreen() {
               </Text>
             </View>
 
+            {expensesThisMonth.length === 0 && (
+              <View style={[s.card, { alignItems: "center", paddingVertical: 28 }]}>
+                <View style={[s.overviewIcon, { marginBottom: 12 }]}>
+                  <Feather name="compass" size={21} color={colors.primary} />
+                </View>
+                <Text style={[s.cardTitle, { marginBottom: 6, textAlign: "center" }]}>Your insights will appear here</Text>
+                <Text style={{ color: colors.mutedForeground, fontFamily: "Inter_400Regular", fontSize: 13, lineHeight: 19, textAlign: "center", maxWidth: 260 }}>
+                  Add a few expenses in {MONTH_NAMES[month - 1]} to see categories, trends and meaningful comparisons.
+                </Text>
+              </View>
+            )}
+
             <View style={s.statementCard}>
               <View style={s.statementHeader}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
@@ -1030,10 +1048,13 @@ export default function AnalyticsScreen() {
               </View>
 
               <TouchableOpacity
-                style={[s.statementDownloadBtn, downloadingStatement && { opacity: 0.75 }]}
+                style={[s.statementDownloadBtn, (downloadingStatement || expensesThisMonth.length === 0) && { opacity: 0.55 }]}
                 activeOpacity={0.8}
-                disabled={downloadingStatement}
+                disabled={downloadingStatement || expensesThisMonth.length === 0}
                 onPress={downloadMonthlyStatement}
+                accessibilityRole="button"
+                accessibilityLabel="Download monthly PDF statement"
+                accessibilityHint={expensesThisMonth.length === 0 ? "Add expenses before creating a statement" : "Creates a PDF from the selected month"}
               >
                 <LinearGradient
                   colors={gradients.action}
@@ -1049,10 +1070,13 @@ export default function AnalyticsScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[s.statementEmailBtn, emailingStatement && { opacity: 0.75 }]}
+                style={[s.statementEmailBtn, (emailingStatement || expensesThisMonth.length === 0) && { opacity: 0.55 }]}
                 activeOpacity={0.8}
-                disabled={emailingStatement}
+                disabled={emailingStatement || expensesThisMonth.length === 0}
                 onPress={emailMonthlyStatement}
+                accessibilityRole="button"
+                accessibilityLabel="Email monthly statement"
+                accessibilityHint={expensesThisMonth.length === 0 ? "Add expenses before emailing a statement" : "Sends the selected month statement to your registered email"}
               >
                 <Feather name="mail" size={14} color={colors.primary} />
                 <Text style={s.statementEmailText}>
@@ -1140,6 +1164,32 @@ export default function AnalyticsScreen() {
               </View>
             </View>
 
+            <TouchableOpacity
+              onPress={() => setShowDetailedAnalysis((current) => !current)}
+              activeOpacity={0.75}
+              style={{
+                minHeight: 44,
+                marginBottom: 14,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+                alignItems: "center",
+                justifyContent: "center",
+                flexDirection: "row",
+                gap: 8,
+              }}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showDetailedAnalysis }}
+              accessibilityLabel="Show detailed spending analysis"
+            >
+              <Text style={{ color: colors.foreground, fontFamily: "Inter_600SemiBold", fontSize: 13 }}>
+                {showDetailedAnalysis ? "Hide detailed analysis" : "View detailed analysis"}
+              </Text>
+              <Feather name={showDetailedAnalysis ? "chevron-up" : "chevron-down"} size={16} color={colors.mutedForeground} />
+            </TouchableOpacity>
+
+            {showDetailedAnalysis && <>
             {/* Spending Insights grid */}
             <View style={s.card}>
               <Text style={s.cardTitle}>Spending Insights</Text>
@@ -1206,6 +1256,7 @@ export default function AnalyticsScreen() {
             </View>
 
             {/* Category breakdown */}
+            </>}
             <View style={s.card}>
               <Text style={s.cardTitle}>Category Breakdown</Text>
               {sortedCats.length === 0 && (

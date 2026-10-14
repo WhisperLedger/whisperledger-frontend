@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import type { Expense, PaymentMode } from "@/context/ExpenseContext";
 import {
   getNativePendingSMSApprovals,
+  hasNotificationPermission,
   hasSMSApprovalBeenQueuedOrProcessed,
   markSMSApprovalProcessed,
   scheduleSMSApprovalNotification,
@@ -15,14 +16,33 @@ import {
   isSmsAutoSyncAvailable,
   type ParsedSMS,
 } from "@/utils/smsParser";
+import { saveSmsExpense } from "@/utils/smsExpense";
 
 const AUTO_SYNC_ENABLED_KEY = "@auto_sync_enabled";
+const SMS_CAPTURE_MODE_KEY = "@sms_capture_mode";
 const LAST_SMS_SYNC_TIME_KEY = "@last_sms_sync_time";
 const DELETED_SMS_IDS_KEY = "@deleted_sms_ids";
 const DEFAULT_LOOKBACK_DAYS = 7;
 const INITIAL_LOOKBACK_DAYS = 30;
 
 export const SMS_BACKGROUND_SYNC_TASK = "whisperledger-sms-background-sync";
+
+export type SmsCaptureMode = "manual" | "automatic";
+
+export async function getSmsCaptureMode(): Promise<SmsCaptureMode> {
+  const value = await AsyncStorage.getItem(SMS_CAPTURE_MODE_KEY);
+  return value === "automatic" ? "automatic" : "manual";
+}
+
+export async function setSmsCaptureMode(mode: SmsCaptureMode) {
+  await AsyncStorage.setItem(SMS_CAPTURE_MODE_KEY, mode);
+  try {
+    const bridge = require("react-native").NativeModules?.SmsBridge;
+    await bridge?.setCaptureMode?.(mode);
+  } catch {
+    // The native bridge is unavailable on web and Expo Go.
+  }
+}
 
 type SyncOptions = {
   userId?: string;
@@ -33,6 +53,7 @@ type SyncOptions = {
 type SyncResult = {
   parsed: number;
   queued: number;
+  added: number;
   skipped: number;
 };
 
@@ -120,25 +141,36 @@ export async function markSmsIgnored(smsId?: string | null) {
 
 export async function queueSMSApprovalNotifications(options: SyncOptions = {}): Promise<SyncResult> {
   if (Platform.OS !== "android" || !isSmsAutoSyncAvailable()) {
-    return { parsed: 0, queued: 0, skipped: 0 };
+    return { parsed: 0, queued: 0, added: 0, skipped: 0 };
   }
 
   // Mutex lock to prevent duplicate parallel executions
   if (isSyncingSMS) {
-    return { parsed: 0, queued: 0, skipped: 0 };
+    return { parsed: 0, queued: 0, added: 0, skipped: 0 };
   }
   isSyncingSMS = true;
 
   try {
     const permissionGranted = await hasSmsPermission();
     if (!permissionGranted) {
-      return { parsed: 0, queued: 0, skipped: 0 };
+      return { parsed: 0, queued: 0, added: 0, skipped: 0 };
+    }
+
+    const captureMode = await getSmsCaptureMode();
+    // Manual review needs notifications. Automatic mode records an already
+    // opted-in capture directly and therefore still works if alerts are off.
+    if (captureMode === "manual" && !(await hasNotificationPermission())) {
+      return { parsed: 0, queued: 0, added: 0, skipped: 0 };
     }
 
     const minDateMs = await getMinDateMs(options.initialLookback);
     const parsedExpenses = await fetchAndParseSMS(minDateMs);
-    if (parsedExpenses.length === 0) {
-      return { parsed: 0, queued: 0, skipped: 0 };
+    const nativePending = captureMode === "automatic" ? await syncNativePendingApprovals() : [];
+    const candidates = [...nativePending, ...parsedExpenses].filter(
+      (expense, index, entries) => entries.findIndex((item) => item.smsId === expense.smsId) === index
+    );
+    if (candidates.length === 0) {
+      return { parsed: 0, queued: 0, added: 0, skipped: 0 };
     }
 
     const userId = options.userId || (await getCachedUserId());
@@ -150,9 +182,10 @@ export async function queueSMSApprovalNotifications(options: SyncOptions = {}): 
     }
 
     let queued = 0;
+    let added = 0;
     let skipped = 0;
 
-    for (const expense of parsedExpenses) {
+    for (const expense of candidates) {
       if (!expense.smsId) {
         skipped += 1;
         continue;
@@ -176,6 +209,17 @@ export async function queueSMSApprovalNotifications(options: SyncOptions = {}): 
         continue;
       }
 
+      if (captureMode === "automatic" && userId) {
+        const saved = await saveSmsExpense(userId, expense);
+        if (saved) {
+          await markSMSApprovalProcessed(expense.smsId);
+          added += 1;
+        } else {
+          skipped += 1;
+        }
+        continue;
+      }
+
       const dateAmountKey = `sms_${expense.date}_${String(expense.amount).replace(".", "_")}`;
       if (
         (await hasSMSApprovalBeenQueuedOrProcessed(expense.smsId)) ||
@@ -195,7 +239,7 @@ export async function queueSMSApprovalNotifications(options: SyncOptions = {}): 
 
     await AsyncStorage.setItem(LAST_SMS_SYNC_TIME_KEY, Date.now().toString());
 
-    return { parsed: parsedExpenses.length, queued, skipped };
+    return { parsed: candidates.length, queued, added, skipped };
   } finally {
     isSyncingSMS = false;
   }

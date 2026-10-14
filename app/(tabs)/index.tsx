@@ -25,7 +25,6 @@ import HouseholdBalanceCard from "@/components/HouseholdBalanceCard";
 import HouseholdExpenseItem from "@/components/HouseholdExpenseItem";
 import SettleUpModal from "@/components/SettleUpModal";
 import HouseholdManagementModal from "@/components/HouseholdManagementModal";
-import QuickActionMenu from "@/components/QuickActionMenu";
 import ProBadge from "@/components/ProBadge";
 import { useAuth } from "@/context/AuthContext";
 import { CATEGORIES, CategoryId, Expense, useExpenses } from "@/context/ExpenseContext";
@@ -79,7 +78,6 @@ export default function HomeScreen() {
   const params = useLocalSearchParams<{ openAdd?: string; date?: string }>();
 
   const [selectedDate, setSelectedDate] = useState(params.date || todayISO());
-  const [showQuickActions, setShowQuickActions] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [isHouseholdSpend, setIsHouseholdSpend] = useState(false);
   const [showAddReceivable, setShowAddReceivable] = useState(false);
@@ -310,6 +308,20 @@ export default function HomeScreen() {
       marginTop: 6,
       lineHeight: 20,
     },
+    emptyAction: {
+      marginTop: 18,
+      minHeight: 44,
+      paddingHorizontal: 18,
+      borderRadius: 12,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    emptyActionText: {
+      color: "#FFFFFF",
+      fontSize: 14,
+      fontFamily: "Inter_700Bold",
+    },
     fab: {
       position: "absolute",
       right: 20,
@@ -344,7 +356,7 @@ export default function HomeScreen() {
               {isPro && <ProBadge size="sm" />}
             </View>
             <Text style={styles.headerTitle}>
-              {activeSpace === "household" ? "Household Ledger" : "Daily Tracker"}
+              {activeSpace === "household" ? "Shared spending" : "Today’s spending"}
             </Text>
           </View>
           <TouchableOpacity
@@ -367,7 +379,7 @@ export default function HomeScreen() {
         {activeSpace === "household" ? (
           <View style={styles.totalWrap}>
             <View>
-              <Text style={styles.totalLabel}>TOTAL FLAT SPEND THIS MONTH</Text>
+              <Text style={styles.totalLabel}>SHARED SPEND THIS MONTH</Text>
               <Text style={styles.totalDate}>
                 {new Date().toLocaleString("default", { month: "long", year: "numeric" })}
               </Text>
@@ -478,8 +490,17 @@ export default function HomeScreen() {
                 </View>
                 <Text style={styles.emptyTitle}>No expenses today</Text>
                 <Text style={styles.emptySubtitle}>
-                  Tap the + button to log your first expense for this day
+                  Add an expense to start your record for this day.
                 </Text>
+                <TouchableOpacity
+                  style={styles.emptyAction}
+                  onPress={() => { setEditExpense(null); setIsHouseholdSpend(false); setShowAdd(true); }}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add your first expense"
+                >
+                  <Text style={styles.emptyActionText}>Add first expense</Text>
+                </TouchableOpacity>
               </View>
             }
             renderItem={({ item }) => (
@@ -648,8 +669,17 @@ export default function HomeScreen() {
                 </View>
                 <Text style={styles.emptyTitle}>No shared household spends</Text>
                 <Text style={styles.emptySubtitle}>
-                  Tap the + button to add a bill or grocery spend to split with flatmates
+                  Add a shared expense when you pay for the household.
                 </Text>
+                <TouchableOpacity
+                  style={styles.emptyAction}
+                  onPress={() => { setEditExpense(null); setIsHouseholdSpend(true); setShowAdd(true); }}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add first household expense"
+                >
+                  <Text style={styles.emptyActionText}>Add shared expense</Text>
+                </TouchableOpacity>
               </View>
             ) : null
           }
@@ -680,6 +710,9 @@ export default function HomeScreen() {
           setShowAdd(true);
         }}
         activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel={activeSpace === "household" ? "Add a household expense" : "Add a personal expense"}
+        accessibilityHint="Opens the expense form"
       >
         <LinearGradient
           colors={gradients.action}
@@ -696,29 +729,6 @@ export default function HomeScreen() {
           <Feather name="plus" size={28} color="#fff" />
         </LinearGradient>
       </TouchableOpacity>
-
-      <QuickActionMenu
-        visible={showQuickActions}
-        onClose={() => setShowQuickActions(false)}
-        hasHousehold={!!currentHousehold}
-        onSelectPersonalExpense={() => {
-          setEditExpense(null);
-          setIsHouseholdSpend(false);
-          setShowAdd(true);
-        }}
-        onSelectHouseholdSplit={() => {
-          setEditExpense(null);
-          setIsHouseholdSpend(true);
-          setShowAdd(true);
-        }}
-        onSelectReceivable={() => {
-          setShowAddReceivable(true);
-        }}
-        onSelectSettleUp={() => {
-          setSelectedDebt(null);
-          setShowSettleUp(true);
-        }}
-      />
 
       <AddExpenseModal
         visible={showAdd}

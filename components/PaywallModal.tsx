@@ -92,9 +92,10 @@ export default function PaywallModal() {
     const success = await startTrial();
     setLoading(false);
     if (success) {
-      Alert.alert("🎉 7-Day Free Trial Activated!", "All Pro features (AI Voice, PDF Statements, Recovery Engine) are now live on your device.");
+      Alert.alert("Trial requested", "Your trial request is queued. Pro features unlock after the request is approved.");
+      closePaywall();
     } else {
-      Alert.alert("Trial Unavailable", "You have already used your 7-day free trial on this account.");
+      Alert.alert("Trial unavailable", pendingProRequest ? "An access request is already pending." : "You have already used your trial or are not eligible.");
     }
   };
 
@@ -104,9 +105,10 @@ export default function PaywallModal() {
     const success = await upgradePlan(selectedPlan, false);
     setLoading(false);
     if (success) {
-      Alert.alert("🎉 Pro Activated!", `You have upgraded to WhisperLedger Pro (${selectedPlanLabel} Plan). Enjoy all premium features!`);
+      Alert.alert("Upgrade request submitted", `Your ${selectedPlanLabel} Pro request is queued. Access unlocks after verified payment and approval.`);
+      closePaywall();
     } else {
-      Alert.alert("Unable to enable Pro", "Please try again or check your network connection.");
+      Alert.alert("Request unavailable", pendingProRequest ? "An upgrade request is already pending." : "Please try again or check your network connection.");
     }
   };
 
@@ -270,7 +272,7 @@ export default function PaywallModal() {
                       <>
                         <Feather name="zap" size={18} color="#FFD700" />
                         <Text style={styles.ctaText}>
-                          Start 7-Day Free Trial (Instant Unlock)
+                          Request 7-Day Free Trial
                         </Text>
                         <Feather name="arrow-right" size={18} color="#fff" />
                       </>
@@ -284,7 +286,7 @@ export default function PaywallModal() {
                   disabled={loading}
                 >
                   <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: colors.primary }}>
-                    Or Upgrade to {selectedPlanLabel} Pro (₹{selectedPrice}/{selectedInterval})
+                    Request {selectedPlanLabel} Pro (₹{selectedPrice}/{selectedInterval})
                   </Text>
                 </TouchableOpacity>
               </>
@@ -306,7 +308,7 @@ export default function PaywallModal() {
                   ) : (
                     <>
                       <Text style={styles.ctaText}>
-                        Upgrade to {selectedPlanLabel} Pro (₹{selectedPrice})
+                        Request {selectedPlanLabel} Pro (₹{selectedPrice})
                       </Text>
                       <Feather name="arrow-right" size={18} color="#fff" />
                     </>
@@ -317,7 +319,7 @@ export default function PaywallModal() {
 
             <Text style={styles.footerNote}>
               {!trialUsed
-                ? "Instant 7-day free trial on device. Paid plans activate upon admin/payment approval."
+                ? "Trial access unlocks only after approval. Paid plans require verified payment."
                 : pendingProRequest
                   ? "Pro will unlock only after admin marks approval and payment as received."
                   : `Trial already used. Pro activates after approval: ₹${selectedPrice}/${selectedPlan === "yearly" ? "yr" : "mo"}.`}

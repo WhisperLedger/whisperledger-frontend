@@ -286,7 +286,7 @@ export default function RegisterScreen() {
                   <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: "rgba(16, 185, 129, 0.15)", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
                     <Feather name="mail" size={32} color="#10B981" />
                   </View>
-                  <Text style={[styles.heading, { fontSize: 20, textAlign: "center", marginBottom: 8 }]}>Verification Email Sent! 📩</Text>
+                  <Text style={[styles.heading, { fontSize: 20, textAlign: "center", marginBottom: 8 }]}>Verification email sent</Text>
                   <Text style={[styles.subheading, { textAlign: "center", marginBottom: 24, paddingHorizontal: 12 }]}>
                     We have sent a verification link to <Text style={{ color: colors.primary, fontWeight: "700" }}>{email}</Text>. Please open your email inbox and click the verification link to activate your account.
                   </Text>
