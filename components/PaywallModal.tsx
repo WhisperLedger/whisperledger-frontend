@@ -21,9 +21,9 @@ import * as Haptics from "expo-haptics";
 const PRO_BENEFITS = [
   {
     icon: "mic",
-    title: "AI Voice Expense Auto-Logging",
-    desc: "Speak naturally to log spends and run deep AI audits instantly.",
-    badge: "AI Powered",
+    title: "Instant Voice Expense Logging",
+    desc: "Speak naturally to capture amounts, merchants, and categories hands-free.",
+    badge: "Voice First",
   },
   {
     icon: "shield",

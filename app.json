@@ -49,7 +49,7 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Allow WhisperLedger to use the microphone for chatbot voice commands.",
+          "microphonePermission": "Allow WhisperLedger to use the microphone for voice expense logging.",
           "speechRecognitionPermission": "Allow WhisperLedger to convert your voice commands into text."
         }
       ],

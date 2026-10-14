@@ -14,6 +14,15 @@ function getSmsBridge() {
 
 import type { CategoryId, PaymentMode } from "@/context/ExpenseContext";
 import { db } from "@/lib/firebase";
+import { runtimeConfig } from "@/config/runtime";
+
+function getApiClient() {
+  try {
+    return require("@/lib/api")?.api || null;
+  } catch {
+    return null;
+  }
+}
 
 export const SMS_APPROVAL_CATEGORY = "sms_approval";
 export const DAILY_REMINDER_TYPE = "daily_reminder";
@@ -193,16 +202,34 @@ type PushRegistrationUser = { uid: string; name?: string; email?: string };
 
 export async function persistExpoPushToken(user: PushRegistrationUser, token: string) {
   if (!token || !user.uid) return;
-  await setDoc(doc(db, `users/${user.uid}`), {
-    uid: user.uid,
-    name: user.name || "User",
-    email: user.email || "",
-    pushToken: token,
-    pushTokenPlatform: Platform.OS,
-    pushTokenUpdatedAt: Date.now(),
-    notificationPermission: "granted",
-    lastActive: Date.now(),
-  }, { merge: true });
+
+  // 1. Sync device push token with PostgreSQL API backend
+  if (runtimeConfig.dataBackend === "api") {
+    try {
+      const client = getApiClient();
+      if (client?.updatePushToken) {
+        await client.updatePushToken(token);
+      }
+    } catch (err) {
+      console.warn("[PushToken] Failed to sync token with PostgreSQL API backend:", err);
+    }
+  }
+
+  // 2. Mirror to Firestore if available
+  try {
+    await setDoc(doc(db, `users/${user.uid}`), {
+      uid: user.uid,
+      name: user.name || "User",
+      email: user.email || "",
+      pushToken: token,
+      pushTokenPlatform: Platform.OS,
+      pushTokenUpdatedAt: Date.now(),
+      notificationPermission: "granted",
+      lastActive: Date.now(),
+    }, { merge: true });
+  } catch {
+    // ignore offline mirror error
+  }
 }
 
 export async function registerExpoPushToken(user: PushRegistrationUser): Promise<string | null> {
@@ -212,22 +239,45 @@ export async function registerExpoPushToken(user: PushRegistrationUser): Promise
 
   await setupNotifications();
   const permission = await Notifications.getPermissionsAsync();
-  const status = permission.status;
+  let status = permission.status;
 
   if (status !== "granted") {
-    await setDoc(doc(db, `users/${user.uid}`), {
-      notificationPermission: status,
-      pushTokenUpdatedAt: Date.now(),
-    }, { merge: true }).catch(() => null);
+    try {
+      const requested = await Notifications.requestPermissionsAsync();
+      status = requested.status;
+    } catch {
+      // ignore
+    }
+  }
+
+  if (status !== "granted") {
+    try {
+      await setDoc(doc(db, `users/${user.uid}`), {
+        notificationPermission: status,
+        pushTokenUpdatedAt: Date.now(),
+      }, { merge: true });
+    } catch {
+      // ignore
+    }
     return null;
   }
 
-  const projectId = Constants?.expoConfig?.extra?.eas?.projectId || Constants?.easConfig?.projectId;
-  if (!projectId) throw new Error("Expo project ID is missing from app configuration.");
+  const projectId =
+    Constants?.expoConfig?.extra?.eas?.projectId ||
+    Constants?.easConfig?.projectId ||
+    "71500397-9a26-40a5-adcc-e5e634be150c";
 
-  const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-  await persistExpoPushToken(user, token);
-  return token;
+  try {
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+    const token = tokenData?.data;
+    if (token) {
+      await persistExpoPushToken(user, token);
+      return token;
+    }
+  } catch (err) {
+    console.warn("[Notifications] Error obtaining Expo push token:", err);
+  }
+  return null;
 }
 
 export async function scheduleSMSApprovalNotification(transaction: SMSApprovalPayload) {
