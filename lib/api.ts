@@ -125,6 +125,13 @@ class BackendClient {
     return this.request<ApiCurrentUser & { user?: ApiCurrentUser }>('/auth/me');
   }
 
+  async updatePushToken(pushToken: string) {
+    return this.request('/auth/push-token', {
+      method: 'PUT',
+      body: JSON.stringify({ push_token: pushToken }),
+    });
+  }
+
   // --- 3-Way Outflow Ledger APIs ---
   async createExpense(expense: {
     amount: number;

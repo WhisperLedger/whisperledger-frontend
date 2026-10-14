@@ -476,7 +476,7 @@ export default function ProfileScreen() {
           : "Monthly Plan";
     Alert.alert(
       "WhisperLedger Pro",
-      `Plan: ${planName}\nStatus: Active\n\nAll premium features are active: AI Advisor, Unlimited Wallets, Bank Statements, and Debt Recovery Engine.`,
+      `Plan: ${planName}\nStatus: Active\n\nAll premium features are active: Unlimited Wallets, Bank Statements, Split Automation, and Debt Recovery Engine.`,
       [
         { text: "Done", style: "cancel" },
         {
@@ -972,10 +972,10 @@ export default function ProfileScreen() {
                 </View>
                 <Text style={styles.membershipSubtitle} numberOfLines={2}>
                   {isPro
-                    ? "Active subscription • All AI, Multi-Wallet & Export features unlocked"
+                    ? "Active subscription • Multi-Wallets, Advanced Analytics & Statement Exports unlocked"
                     : pendingProRequest
                       ? "Approval pending by admin"
-                      : "Unlock AI Assistant, Multi-Wallets & Bank Statements"}
+                      : "Unlock Multi-Wallets, Advanced Analytics & Bank Statements"}
                 </Text>
               </View>
             </View>
@@ -1089,13 +1089,6 @@ export default function ProfileScreen() {
         {/* Support */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>SUPPORT</Text>
-          <MenuItem
-            icon="message-square"
-            label="WhisperBot"
-            sublabel="Ask about your recorded spending"
-            onPress={() => router.push("/(tabs)/chatbot")}
-          />
-          <Divider />
           <MenuItem
             icon="life-buoy"
             label="Raise Support Ticket"
