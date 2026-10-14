@@ -45,6 +45,9 @@ interface User {
   avatarResizeMode?: "cover" | "contain";
   username?: string;
   bio?: string;
+  plan?: string;
+  isPro?: boolean;
+  role?: string;
 }
 
 interface AuthContextType {
@@ -90,14 +93,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (runtimeConfig.dataBackend === "api") {
       api.getMe()
         .then((res) => {
-          if (res.success && res.data?.user) {
-            const apiUser = res.data.user;
+          const apiUser = res.data?.user || (res.data?.id ? res.data : null);
+          if (res.success && apiUser) {
+            const isPro = apiUser.plan === "pro";
             const updatedUser: User = {
               uid: apiUser.id,
               name: apiUser.full_name || "User",
               email: apiUser.email || "",
               avatarUri: apiUser.avatar_url || undefined,
               username: apiUser.email?.split("@")[0] || "user",
+              plan: apiUser.plan || "starter_free",
+              isPro: isPro,
+              role: apiUser.role || "user",
             };
             setUser(updatedUser);
             AsyncStorage.setItem("@last_active_user_session", JSON.stringify(updatedUser)).catch(() => null);
@@ -221,12 +228,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const res = await api.login(cleanEmail, pass);
         if (res.success && res.data?.user) {
           const apiUser = res.data.user;
+          const isPro = apiUser.plan === "pro";
           const updatedUser: User = {
             uid: apiUser.id,
             name: apiUser.full_name || "User",
             email: apiUser.email || cleanEmail,
             avatarUri: apiUser.avatar_url || undefined,
             username: cleanEmail.split("@")[0],
+            plan: apiUser.plan || "starter_free",
+            isPro: isPro,
+            role: apiUser.role || "user",
           };
           setUser(updatedUser);
           await AsyncStorage.setItem("@last_active_user_session", JSON.stringify(updatedUser));

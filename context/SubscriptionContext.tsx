@@ -3,6 +3,8 @@ import { addDoc, collection, doc, onSnapshot, query, serverTimestamp, where } fr
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { useAuth } from "./AuthContext";
 import { db } from "@/lib/firebase";
+import { api } from "@/lib/api";
+import { runtimeConfig } from "@/config/runtime";
 import { safeHaptics } from "@/utils/haptics";
 import * as Haptics from "expo-haptics";
 import {
@@ -94,7 +96,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return () => unsubConfig();
   }, []);
 
-  // 2. Listen to User document for real-time subscription changes (e.g. upgraded by Admin or In-App)
+  // 2. Listen to User document / API for subscription status (e.g. upgraded by Admin or In-App)
   useEffect(() => {
     if (!user) {
       setSub({
@@ -104,6 +106,50 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         expiresAt: null,
       });
       setLoading(false);
+      return;
+    }
+
+    // Check if user object already carries Pro entitlement
+    if (user.isPro === true || user.plan === "pro") {
+      const proSub: UserSubscription = {
+        tier: "pro",
+        plan: "yearly",
+        status: "active",
+        expiresAt: null,
+      };
+      setSub(proSub);
+      cacheSubscription(user.uid, proSub).catch(() => null);
+      setLoading(false);
+    }
+
+    // When connecting to PostgreSQL API backend, fetch entitlements directly from /auth/me
+    if (runtimeConfig.dataBackend === "api") {
+      api.getMe().then(async (res) => {
+        const apiUser = res.data?.user || (res.data?.id ? res.data : null);
+        if (apiUser && (apiUser.plan === "pro" || apiUser.isPro === true)) {
+          const proSub: UserSubscription = {
+            tier: "pro",
+            plan: "yearly",
+            status: "active",
+            expiresAt: null,
+          };
+          setSub(proSub);
+          await cacheSubscription(user.uid, proSub);
+        } else if (apiUser) {
+          const freeSub: UserSubscription = {
+            tier: "free",
+            plan: "free",
+            status: "none",
+            expiresAt: null,
+          };
+          setSub(freeSub);
+          await cacheSubscription(user.uid, freeSub);
+        }
+      }).catch((err) => {
+        console.warn("[Subscription] API getMe subscription check fallback:", err);
+      }).finally(() => {
+        setLoading(false);
+      });
       return;
     }
 
@@ -127,14 +173,26 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           setSub(resolvedSub);
           await cacheSubscription(user.uid, resolvedSub);
         } else {
-          const freeSub: UserSubscription = {
-            tier: "free",
-            plan: "free",
-            status: "none",
-            expiresAt: null,
-          };
-          setSub(freeSub);
-          await cacheSubscription(user.uid, freeSub);
+          // If Firestore user doc doesn't exist yet, check user object before defaulting to free
+          if (user.isPro === true || user.plan === "pro") {
+            const proSub: UserSubscription = {
+              tier: "pro",
+              plan: "yearly",
+              status: "active",
+              expiresAt: null,
+            };
+            setSub(proSub);
+            await cacheSubscription(user.uid, proSub);
+          } else {
+            const freeSub: UserSubscription = {
+              tier: "free",
+              plan: "free",
+              status: "none",
+              expiresAt: null,
+            };
+            setSub(freeSub);
+            await cacheSubscription(user.uid, freeSub);
+          }
         }
         setLoading(false);
       },

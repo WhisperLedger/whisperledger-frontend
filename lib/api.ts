@@ -22,11 +22,15 @@ export interface ApiResponse<T = any> {
   };
 }
 
-type ApiCurrentUser = {
+export type ApiCurrentUser = {
   id: string;
   full_name?: string;
   email?: string;
   avatar_url?: string;
+  plan?: string;
+  isPro?: boolean;
+  status?: string;
+  role?: string;
 };
 
 type ApiHouseholdMember = {
@@ -118,7 +122,7 @@ class BackendClient {
   }
 
   async getMe() {
-    return this.request<{ user: ApiCurrentUser }>('/auth/me');
+    return this.request<ApiCurrentUser & { user?: ApiCurrentUser }>('/auth/me');
   }
 
   // --- 3-Way Outflow Ledger APIs ---
