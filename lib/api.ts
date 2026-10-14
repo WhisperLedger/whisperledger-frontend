@@ -232,6 +232,40 @@ class BackendClient {
     if (year) query.set('year', String(year));
     return this.request(`/detective/household-audit?${query.toString()}`);
   }
+
+  // --- Admin & Cloud Telemetry APIs ---
+  async getPlatformMetrics() {
+    return this.request<{
+      total_users: number;
+      total_households: number;
+      total_expenses_tracked: number;
+      total_volume_tracked: number;
+      total_receivables_pending: number;
+      active_users_7_days: number;
+      generated_at: string;
+    }>('/admin/metrics');
+  }
+
+  async getCloudTelemetry() {
+    return this.request<{
+      service: string;
+      region: string;
+      revision: string;
+      environment: string;
+      status: string;
+      uptime_seconds: number;
+      go_version: string;
+      memory_alloc_mb: number;
+      memory_sys_mb: number;
+      db_pool_total: number;
+      db_pool_idle: number;
+      db_pool_acquired: number;
+      daily_volumes: Array<{ date: string; amount: number; count: number }>;
+      recent_logs: Array<{ timestamp: string; level: string; message: string; source: string }>;
+      gcp_console_links: Record<string, string>;
+    }>('/admin/telemetry');
+  }
 }
 
 export const api = new BackendClient();
+

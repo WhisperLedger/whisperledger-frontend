@@ -9,13 +9,11 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == userId;
     }
 
-    // Bootstrap rule: replace with a Firebase custom claim before adding more
-    // operators. Verified email prevents an unverified account from using the
-    // administrative console.
+    // Administrative access is assigned only by the Firebase Admin SDK.
+    // Never grant console permissions from a client-controlled email allowlist.
     function isAdmin() {
       return signedIn() &&
-        request.auth.token.email == "agarwaltanmay401@gmail.com" &&
-        request.auth.token.email_verified == true;
+        request.auth.token.admin == true;
     }
 
     function ownerUserCreateFields() {
@@ -200,6 +198,13 @@ service cloud.firestore {
 
     match /broadcast_history/{broadcastId} {
       allow read, write: if isAdmin();
+    }
+
+    // Append-only audit records for privileged console actions.
+    match /compliance_audit_logs/{logId} {
+      allow create: if isAdmin();
+      allow read: if isAdmin();
+      allow update, delete: if false;
     }
 
     match /mail/{mailId} {

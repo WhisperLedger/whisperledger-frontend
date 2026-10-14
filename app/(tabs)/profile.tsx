@@ -23,6 +23,7 @@ import { router } from "expo-router";
 import PrivacyConsentModal from "@/components/PrivacyConsentModal";
 import SupportModal from "@/components/SupportModal";
 import HouseholdManagementModal from "@/components/HouseholdManagementModal";
+import AdminDashboardModal from "@/components/AdminDashboardModal";
 import {
   authenticateWithBiometrics,
   checkBiometricAvailable,
@@ -151,6 +152,7 @@ export default function ProfileScreen() {
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [showHouseholdModal, setShowHouseholdModal] = useState(false);
+  const [showAdminModal, setShowAdminModal] = useState(false);
   const [showAvatarOptions, setShowAvatarOptions] = useState(false);
   const [pendingAvatar, setPendingAvatar] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [showAvatarPreview, setShowAvatarPreview] = useState(false);
@@ -1085,6 +1087,17 @@ export default function ProfileScreen() {
           />
         </View>
 
+        {/* Cloud & Platform Administration */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>CLOUD & SYSTEM TELEMETRY</Text>
+          <MenuItem
+            icon="server"
+            label="Admin Console & Cloud Metrics"
+            sublabel="Cloud Run logs, Neon DB pool, and platform KPIs"
+            onPress={() => setShowAdminModal(true)}
+          />
+        </View>
+
         {/* Support */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>SUPPORT</Text>
@@ -1126,6 +1139,11 @@ export default function ProfileScreen() {
       <HouseholdManagementModal
         visible={showHouseholdModal}
         onClose={() => setShowHouseholdModal(false)}
+      />
+
+      <AdminDashboardModal
+        visible={showAdminModal}
+        onClose={() => setShowAdminModal(false)}
       />
 
       <PrivacyConsentModal
