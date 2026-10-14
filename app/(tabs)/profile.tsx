@@ -1088,7 +1088,14 @@ export default function ProfileScreen() {
 
         {/* Support */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>SUPPORT</Text>
+          <Text style={styles.sectionLabel}>SUPPORT & ASSISTANT</Text>
+          <MenuItem
+            icon="message-circle"
+            label="WhisperBot Assistant"
+            sublabel="Query spending, categories & balances"
+            onPress={() => router.push("/(tabs)/chatbot")}
+          />
+          <Divider />
           <MenuItem
             icon="life-buoy"
             label="Raise Support Ticket"

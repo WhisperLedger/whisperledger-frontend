@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   ExpoSpeechRecognitionModule,
@@ -433,6 +434,7 @@ function findExpenseEditRequest(text: string, expenses: Expense[]): ExpenseEditR
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function ChatbotScreen() {
+  const router = useRouter();
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
@@ -1487,6 +1489,14 @@ export default function ChatbotScreen() {
       alignItems: "center",
       gap: 12,
     },
+    backBtn: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      ...iconSurface(colors),
+    },
     avatar: {
       width: 38, height: 38, borderRadius: 12,
       alignItems: "center", justifyContent: "center",
@@ -1589,10 +1599,18 @@ export default function ChatbotScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          activeOpacity={0.8}
+          onPress={() => router.back()}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Feather name="chevron-left" size={22} color={colors.foreground} />
+        </TouchableOpacity>
         <View style={styles.avatar}>
           <Feather name="message-circle" size={20} color="#10b981" />
         </View>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>WhisperBot</Text>
           <Text style={styles.headerSub}>Private, review-first assistance</Text>
         </View>

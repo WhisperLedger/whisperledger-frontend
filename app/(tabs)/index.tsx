@@ -359,18 +359,29 @@ export default function HomeScreen() {
               {activeSpace === "household" ? "Shared spending" : "Today’s spending"}
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.notifyBtn}
-            activeOpacity={0.8}
-            onPress={() => router.push("/notifications")}
-          >
-            <Feather name="bell" size={20} color={colors.primary} />
-            {unreadCount > 0 && (
-              <View style={styles.notifyBadge}>
-                <Text style={styles.notifyBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <TouchableOpacity
+              style={styles.notifyBtn}
+              activeOpacity={0.8}
+              onPress={() => router.push("/(tabs)/chatbot")}
+              accessibilityLabel="WhisperBot Assistant"
+            >
+              <Feather name="message-circle" size={19} color={colors.primary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.notifyBtn}
+              activeOpacity={0.8}
+              onPress={() => router.push("/notifications")}
+            >
+              <Feather name="bell" size={20} color={colors.primary} />
+              {unreadCount > 0 && (
+                <View style={styles.notifyBadge}>
+                  <Text style={styles.notifyBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Space Switcher Pill */}
