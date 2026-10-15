@@ -16,7 +16,6 @@ import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { doc, setDoc, writeBatch } from "firebase/firestore";
 import { Platform } from "react-native";
-import * as WebBrowser from "expo-web-browser";
 import { db, auth } from "../lib/firebase";
 import { api } from "../lib/api";
 import { runtimeConfig } from "@/config/runtime";
@@ -24,7 +23,8 @@ import { SecureSession, SECURE_KEYS } from "../lib/secureStorage";
 import { validateEmail, validateFullName, validateUsername } from "@/utils/validation";
 import { validatePassword } from "@/utils/passwordValidator";
 
-WebBrowser.maybeCompleteAuthSession();
+const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_OAUTH_CLIENT_ID
+  || "1064792050841-amo41uudlpvmuoou362ijcktfe198hdr.apps.googleusercontent.com";
 
 function getGoogleSigninModule() {
   if (Constants.appOwnership === "expo") return null;
@@ -72,6 +72,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isRegisteringRef = useRef(false);
 
   useEffect(() => {
+    const GoogleSignin = getGoogleSigninModule();
+    if (GoogleSignin) {
+      GoogleSignin.configure({
+        webClientId: GOOGLE_WEB_CLIENT_ID,
+        offlineAccess: false,
+      });
+    }
+
     // Initial boot cache restore
     // Only Firebase uses a cached display profile during boot. API mode must
     // validate its bearer token before rendering an authenticated session.
@@ -126,14 +134,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setIsLoading(false);
         });
       return;
-    }
-
-    const GoogleSignin = getGoogleSigninModule();
-    if (GoogleSignin) {
-      GoogleSignin.configure({
-        webClientId: "1064792050841-amo41uudlpvmuoou362ijcktfe198hdr.apps.googleusercontent.com",
-        offlineAccess: true,
-      });
     }
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -396,6 +396,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loginWithGoogle = useCallback(async () => {
     try {
+      if (runtimeConfig.dataBackend === "api") {
+        const GoogleSignin = getGoogleSigninModule();
+        if (!GoogleSignin) {
+          return {
+            success: false,
+            error: "Google sign-in needs the installed WhisperLedger app. It is not available in Expo Go or a browser preview.",
+          };
+        }
+
+        try {
+          await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+          const response = await GoogleSignin.signIn();
+          let idToken = (response as any)?.data?.idToken || (response as any)?.idToken;
+          if (!idToken && typeof GoogleSignin.getTokens === "function") {
+            const tokens = await GoogleSignin.getTokens();
+            idToken = tokens.idToken;
+          }
+          if (!idToken) {
+            return { success: false, error: "Google did not return a sign-in token. Please try again." };
+          }
+
+          const res = await api.loginWithGoogle(idToken);
+          if (!res.success || !res.data?.user) {
+            return { success: false, error: res.error?.message || "Google sign-in could not be completed." };
+          }
+
+          const apiUser = res.data.user;
+          const updatedUser: User = {
+            uid: apiUser.id,
+            name: apiUser.full_name || "User",
+            email: apiUser.email || "",
+            avatarUri: apiUser.avatar_url || undefined,
+            username: apiUser.email?.split("@")[0] || "user",
+            plan: apiUser.plan || "starter_free",
+            isPro: apiUser.plan === "pro",
+            role: apiUser.role || "user",
+          };
+          setUser(updatedUser);
+          await AsyncStorage.setItem("@last_active_user_session", JSON.stringify(updatedUser));
+          return { success: true };
+        } catch (nativeErr: any) {
+          const errCode = String(nativeErr?.code || "");
+          const errMsg = String(nativeErr?.message || "");
+          if (errCode === "12501" || errCode === "SIGN_IN_CANCELLED" || errMsg.toLowerCase().includes("cancel")) {
+            return { success: false, error: "Sign-in was cancelled." };
+          }
+          if (errCode === "10" || errCode === "DEVELOPER_ERROR" || errMsg.toLowerCase().includes("developer_error")) {
+            return { success: false, error: "Google sign-in is not configured for this app build yet. Please use email and password for now." };
+          }
+          return { success: false, error: errMsg || "Google sign-in could not be completed." };
+        }
+      }
+
       if (Platform.OS === "web") {
         const { signInWithPopup, GoogleAuthProvider: FirebaseGoogleAuthProvider } = require("firebase/auth");
         const provider = new FirebaseGoogleAuthProvider();
@@ -445,27 +498,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             };
           }
         }
-      }
-
-      // Stage 2: Browser OAuth Session (uses Firebase Auth handler domain)
-      try {
-        const handlerDomain = "https://whisperledger-94715.firebaseapp.com/__/auth/handler";
-        const clientId = "1064792050841-amo41uudlpvmuoou362ijcktfe198hdr.apps.googleusercontent.com";
-        const appRedirect = "whisperledger://oauthredirect";
-        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&response_type=id_token&redirect_uri=${encodeURIComponent(handlerDomain)}&scope=openid%20profile%20email&state=${encodeURIComponent(appRedirect)}&nonce=${Math.random().toString(36).substring(2)}`;
-
-        const result = await WebBrowser.openAuthSessionAsync(authUrl, appRedirect);
-        if (result.type === "success" && result.url) {
-          const match = result.url.match(/id_token=([^&]+)/);
-          if (match && match[1]) {
-            const idToken = match[1];
-            const credential = GoogleAuthProvider.credential(idToken);
-            await signInWithCredential(auth, credential);
-            return { success: true };
-          }
-        }
-      } catch (webErr) {
-        console.warn("⚠️ WebBrowser Google Auth Session failed:", webErr);
       }
 
       return { success: false, error: "Google sign-in is not available. Please use email and password." };
@@ -552,6 +584,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const forgotPassword = useCallback(async (email: string) => {
+    if (runtimeConfig.dataBackend === "api") {
+      // The production API must own password recovery. Do not send people to
+      // Firebase after their account has moved to Postgres, as that creates a
+      // reset link for a different identity system.
+      return {
+        success: false,
+        error: "Password recovery for migrated accounts is being enabled. Please contact support@whisperledger.in and include this email address.",
+      };
+    }
+
     try {
       // Firebase Auth owns password reset delivery; no reset requests or email
       // addresses are written to Firestore from the client.

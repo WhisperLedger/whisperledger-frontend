@@ -77,12 +77,16 @@ function translateAuthError(rawError: string | object): string {
   const errorString = typeof rawError === "object" ? JSON.stringify(rawError) : String(rawError);
   const msg = errorString.toLowerCase();
 
+  if (msg.includes("migrated account") || msg.includes("password reset")) {
+    return "This account was moved to the new WhisperLedger system. Password recovery needs to be completed before you can sign in.";
+  }
+
   if (errorString.length > 20 && !msg.includes("auth/") && !msg.includes("firebase")) {
     return errorString;
   }
   
   if (msg.includes("developer_error") || msg.includes("developer-error")) {
-    return "Google SSO requires adding your APK SHA-1 fingerprint (5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25) to Firebase Console > Project Settings.";
+    return "Google sign-in is not configured for this app build yet. Please use email and password for now.";
   }
   if (msg.includes("email_not_verified") || msg.includes("email not verified")) {
     return "Email not verified\nPlease check your inbox and open the verification link before signing in.";
