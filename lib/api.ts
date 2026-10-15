@@ -108,6 +108,21 @@ class BackendClient {
     return res;
   }
 
+  async loginWithGoogle(idToken: string) {
+    const res = await this.request<{ user: any; tokens: { access_token: string; refresh_token: string } }>(
+      '/auth/google',
+      {
+        method: 'POST',
+        body: JSON.stringify({ id_token: idToken }),
+      }
+    );
+    if (res.success && res.data?.tokens?.access_token) {
+      await SecureSession.setItem(SECURE_KEYS.AUTH_TOKEN, res.data.tokens.access_token);
+      await SecureSession.setItem(SECURE_KEYS.REFRESH_TOKEN, res.data.tokens.refresh_token);
+    }
+    return res;
+  }
+
   async register(email: string, password: string, fullName: string, phoneNumber?: string) {
     const res = await this.request<{ user: any; tokens: { access_token: string; refresh_token: string } }>(
       '/auth/register',
