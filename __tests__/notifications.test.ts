@@ -46,13 +46,14 @@ describe("scheduleSMSApprovalNotification", () => {
     expect(mockScheduleNotificationAsync).toHaveBeenCalledWith({
       content: {
         title: "New Transaction Detected",
-        body: "Spent Rs 849 at Swiggy. Approve?",
+        body: "Spent ₹849 at Swiggy. Approve?",
         categoryIdentifier: SMS_APPROVAL_CATEGORY,
         data: {
           ...transaction,
           notificationType: SMS_APPROVAL_TYPE,
           isLocalOnly: true,
           smsApproval: true,
+          deepLink: "/notifications?smsApproval=true&smsId=sms_123&amount=849&merchant=Swiggy&date=2026-08-09",
         },
         sound: true,
         priority: "high",

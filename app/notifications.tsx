@@ -124,11 +124,23 @@ export default function NotificationsScreen() {
             smsId: rawSmsId,
             merchant: rawMerchant,
           });
-          await markSMSApprovalProcessed(rawSmsId);
+          await markSMSApprovalProcessed(rawSmsId, smsDate, numAmount);
           await dismissAndClearNotification(rawSmsId, user.uid);
+          setPendingSms((current) => current.filter((item) => item.smsId !== rawSmsId));
           Alert.alert("Transaction added", `Added ₹${numAmount} at ${rawMerchant} to your ledger.`);
         } catch (err) {
           console.error("Param approval failed:", err);
+        }
+      })();
+    } else if (params.action === "discard") {
+      (async () => {
+        try {
+          await markSmsIgnored(rawSmsId);
+          await markSMSApprovalProcessed(rawSmsId, smsDate, numAmount);
+          await dismissAndClearNotification(rawSmsId, user.uid);
+          setPendingSms((current) => current.filter((item) => item.smsId !== rawSmsId));
+        } catch (err) {
+          console.error("Param discard failed:", err);
         }
       })();
     } else {
@@ -140,8 +152,10 @@ export default function NotificationsScreen() {
             text: "Discard",
             style: "destructive",
             onPress: async () => {
-              await markSMSApprovalProcessed(rawSmsId);
+              await markSmsIgnored(rawSmsId);
+              await markSMSApprovalProcessed(rawSmsId, smsDate, numAmount);
               await dismissAndClearNotification(rawSmsId, user.uid);
+              setPendingSms((current) => current.filter((item) => item.smsId !== rawSmsId));
             },
           },
           {
@@ -157,8 +171,9 @@ export default function NotificationsScreen() {
                   smsId: rawSmsId,
                   merchant: rawMerchant,
                 });
-                await markSMSApprovalProcessed(rawSmsId);
+                await markSMSApprovalProcessed(rawSmsId, smsDate, numAmount);
                 await dismissAndClearNotification(rawSmsId, user.uid);
+                setPendingSms((current) => current.filter((item) => item.smsId !== rawSmsId));
                 Alert.alert("Success", `Added ₹${numAmount} to your ledger.`);
               } catch (err) {
                 console.error("Approval failed:", err);
@@ -247,7 +262,7 @@ export default function NotificationsScreen() {
     if (!user) return;
     try {
       const saved = await saveSmsExpense(user.uid, transaction);
-      await markSMSApprovalProcessed(transaction.smsId);
+      await markSMSApprovalProcessed(transaction.smsId, transaction.date, transaction.amount);
       await dismissAndClearNotification(transaction.smsId, user.uid);
       setPendingSms((current) => current.filter((item) => item.smsId !== transaction.smsId));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -259,6 +274,7 @@ export default function NotificationsScreen() {
 
   const discardPendingSms = async (transaction: ParsedSMS) => {
     await markSmsIgnored(transaction.smsId);
+    await markSMSApprovalProcessed(transaction.smsId, transaction.date, transaction.amount);
     if (user) await dismissAndClearNotification(transaction.smsId, user.uid);
     setPendingSms((current) => current.filter((item) => item.smsId !== transaction.smsId));
     Haptics.selectionAsync();

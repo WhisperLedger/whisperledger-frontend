@@ -287,13 +287,13 @@ function RootLayoutNav() {
               smsId: String(smsId || ""),
               merchant: merchant || "Unknown Merchant",
             });
-            await markSMSApprovalProcessed(String(smsId || ""));
+            await markSMSApprovalProcessed(String(smsId || ""), data.date, Number(amount || 0));
             console.log("Expense approved and added to Firestore");
           } catch (e) {
             console.error("Failed to add approved expense:", e);
           }
         } else {
-          await markSmsIgnored(String(smsId || ""));
+          await markSmsIgnored(String(smsId || ""), data.date, Number(amount || 0));
         }
       }
 

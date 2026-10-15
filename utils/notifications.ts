@@ -62,19 +62,44 @@ async function writeStringSet(key: string, values: Set<string>) {
   await AsyncStorage.setItem(key, JSON.stringify(Array.from(values)));
 }
 
-export async function hasSMSApprovalBeenQueuedOrProcessed(smsId?: string | null): Promise<boolean> {
-  if (!smsId) return false;
+export async function hasSMSApprovalBeenQueuedOrProcessed(
+  smsId?: string | null,
+  date?: string | null,
+  amount?: number | null
+): Promise<boolean> {
+  if (!smsId && !date) return false;
   const [pending, processed] = await Promise.all([
     readStringSet(PENDING_SMS_APPROVAL_IDS_KEY),
     readStringSet(PROCESSED_SMS_APPROVAL_IDS_KEY),
   ]);
-  if (pending.has(smsId) || processed.has(smsId)) return true;
+
+  if (smsId && (pending.has(smsId) || processed.has(smsId))) return true;
+
+  if (date != null && amount != null) {
+    const paise = Math.round(amount * 100);
+    const canonicalKey = `txn_${date}_${paise}`;
+    const dateAmountKey = `sms_${date}_${String(amount).replace(".", "_")}`;
+    if (
+      pending.has(canonicalKey) ||
+      processed.has(canonicalKey) ||
+      pending.has(dateAmountKey) ||
+      processed.has(dateAmountKey)
+    ) {
+      return true;
+    }
+  }
 
   const bridge = getSmsBridge();
-  if (bridge?.isSmsSeen) {
+  if (bridge) {
     try {
-      const seen = await bridge.isSmsSeen(smsId);
-      if (seen) return true;
+      if (smsId && bridge.isSmsSeen) {
+        const seen = await bridge.isSmsSeen(smsId);
+        if (seen) return true;
+      }
+      if (date != null && amount != null && bridge.isTransactionSeen) {
+        const seenTxn = await bridge.isTransactionSeen(date, amount);
+        if (seenTxn) return true;
+      }
     } catch {
       // ignore
     }
@@ -83,14 +108,30 @@ export async function hasSMSApprovalBeenQueuedOrProcessed(smsId?: string | null)
   return false;
 }
 
-export async function markSMSApprovalProcessed(smsId?: string | null) {
-  if (!smsId) return;
+export async function markSMSApprovalProcessed(
+  smsId?: string | null,
+  date?: string | null,
+  amount?: number | null
+) {
+  if (!smsId && !date) return;
   const [pending, processed] = await Promise.all([
     readStringSet(PENDING_SMS_APPROVAL_IDS_KEY),
     readStringSet(PROCESSED_SMS_APPROVAL_IDS_KEY),
   ]);
-  pending.delete(smsId);
-  processed.add(smsId);
+
+  const keysToMark: string[] = [];
+  if (smsId) keysToMark.push(smsId);
+  if (date != null && amount != null) {
+    const paise = Math.round(amount * 100);
+    keysToMark.push(`txn_${date}_${paise}`);
+    keysToMark.push(`sms_${date}_${String(amount).replace(".", "_")}`);
+  }
+
+  for (const k of keysToMark) {
+    pending.delete(k);
+    processed.add(k);
+  }
+
   await Promise.all([
     writeStringSet(PENDING_SMS_APPROVAL_IDS_KEY, pending),
     writeStringSet(PROCESSED_SMS_APPROVAL_IDS_KEY, processed),
@@ -99,8 +140,13 @@ export async function markSMSApprovalProcessed(smsId?: string | null) {
   const bridge = getSmsBridge();
   if (bridge) {
     try {
-      if (bridge.markSmsSeen) await bridge.markSmsSeen(smsId);
-      if (bridge.clearPendingApproval) await bridge.clearPendingApproval(smsId);
+      for (const k of keysToMark) {
+        if (bridge.markSmsSeen) await bridge.markSmsSeen(k);
+        if (bridge.clearPendingApproval) await bridge.clearPendingApproval(k);
+      }
+      if (smsId && bridge.clearPendingApproval) {
+        await bridge.clearPendingApproval(smsId);
+      }
     } catch {
       // ignore
     }
@@ -284,21 +330,25 @@ export async function scheduleSMSApprovalNotification(transaction: SMSApprovalPa
   const Notifications = getNotificationsModule();
   if (!Notifications) return null;
 
-  if (await hasSMSApprovalBeenQueuedOrProcessed(transaction.smsId)) return null;
+  // Single source check: if already queued/seen or handled
+  if (await hasSMSApprovalBeenQueuedOrProcessed(transaction.smsId, transaction.date, transaction.amount)) {
+    return null;
+  }
 
   // Cross-check alternative normalized key (date + amount) against both JS and Native stores
   const normalizedAmount = String(transaction.amount).replace(".", "_");
   const dateAmountKey = `sms_${transaction.date}_${normalizedAmount}`;
-  if (await hasSMSApprovalBeenQueuedOrProcessed(dateAmountKey)) return null;
+  if (await hasSMSApprovalBeenQueuedOrProcessed(dateAmountKey, transaction.date, transaction.amount)) {
+    return null;
+  }
 
   const bridge = getSmsBridge();
-  if (bridge?.isSmsSeen) {
+  if (bridge) {
     try {
       const seenByNative =
         (await bridge.isSmsSeen(transaction.smsId)) ||
         (await bridge.isSmsSeen(dateAmountKey)) ||
-        (await bridge.isSmsSeen(`seen_${transaction.smsId}`)) ||
-        (await bridge.isSmsSeen(`seen_${dateAmountKey}`));
+        (bridge.isTransactionSeen ? await bridge.isTransactionSeen(transaction.date, transaction.amount) : false);
       if (seenByNative) {
         // Native broadcast receiver already posted notification in real-time, skip duplicate!
         return null;
@@ -306,18 +356,27 @@ export async function scheduleSMSApprovalNotification(transaction: SMSApprovalPa
     } catch {
       // ignore
     }
+
+    // On Android, the native SmsBroadcastReceiver is the authoritative single source for SMS notifications.
+    // If the native module is present, we must never post a duplicate local notification!
+    if (Platform.OS === "android") {
+      return null;
+    }
   }
+
+  const deepLink = `/notifications?smsApproval=true&smsId=${encodeURIComponent(transaction.smsId)}&amount=${transaction.amount}&merchant=${encodeURIComponent(transaction.merchant)}&date=${transaction.date}`;
 
   const notificationId = await Notifications.scheduleNotificationAsync({
     content: {
       title: "New Transaction Detected",
-      body: `Spent Rs ${transaction.amount} at ${transaction.merchant}. Approve?`,
+      body: `Spent ₹${transaction.amount} at ${transaction.merchant}. Approve?`,
       categoryIdentifier: SMS_APPROVAL_CATEGORY,
       data: {
         ...transaction,
         notificationType: SMS_APPROVAL_TYPE,
         isLocalOnly: true,
         smsApproval: true,
+        deepLink,
       },
       sound: true,
       priority: "high",
