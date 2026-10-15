@@ -133,10 +133,14 @@ async function getMinDateMs(initialLookback?: boolean) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export async function markSmsIgnored(smsId?: string | null) {
-  if (!smsId) return;
-  await addStringToSet(DELETED_SMS_IDS_KEY, smsId);
-  await markSMSApprovalProcessed(smsId);
+export async function markSmsIgnored(smsId?: string | null, date?: string | null, amount?: number | null) {
+  if (!smsId && !date) return;
+  if (smsId) await addStringToSet(DELETED_SMS_IDS_KEY, smsId);
+  if (date != null && amount != null) {
+    const paise = Math.round(amount * 100);
+    await addStringToSet(DELETED_SMS_IDS_KEY, `txn_${date}_${paise}`);
+  }
+  await markSMSApprovalProcessed(smsId, date, amount);
 }
 
 export async function queueSMSApprovalNotifications(options: SyncOptions = {}): Promise<SyncResult> {
@@ -165,7 +169,7 @@ export async function queueSMSApprovalNotifications(options: SyncOptions = {}): 
 
     const minDateMs = await getMinDateMs(options.initialLookback);
     const parsedExpenses = await fetchAndParseSMS(minDateMs);
-    const nativePending = captureMode === "automatic" ? await syncNativePendingApprovals() : [];
+    const nativePending = await syncNativePendingApprovals();
     const candidates = [...nativePending, ...parsedExpenses].filter(
       (expense, index, entries) => entries.findIndex((item) => item.smsId === expense.smsId) === index
     );
@@ -203,7 +207,7 @@ export async function queueSMSApprovalNotifications(options: SyncOptions = {}): 
 
       if (isAlreadyInLedger) {
         if (expense.smsId) {
-          await markSMSApprovalProcessed(expense.smsId);
+          await markSMSApprovalProcessed(expense.smsId, expense.date, expense.amount);
         }
         skipped += 1;
         continue;
@@ -212,7 +216,7 @@ export async function queueSMSApprovalNotifications(options: SyncOptions = {}): 
       if (captureMode === "automatic" && userId) {
         const saved = await saveSmsExpense(userId, expense);
         if (saved) {
-          await markSMSApprovalProcessed(expense.smsId);
+          await markSMSApprovalProcessed(expense.smsId, expense.date, expense.amount);
           added += 1;
         } else {
           skipped += 1;
@@ -220,11 +224,24 @@ export async function queueSMSApprovalNotifications(options: SyncOptions = {}): 
         continue;
       }
 
-      const dateAmountKey = `sms_${expense.date}_${String(expense.amount).replace(".", "_")}`;
-      if (
-        (await hasSMSApprovalBeenQueuedOrProcessed(expense.smsId)) ||
-        (await hasSMSApprovalBeenQueuedOrProcessed(dateAmountKey))
-      ) {
+      // Single source check: if already processed or notified by native receiver
+      if (await hasSMSApprovalBeenQueuedOrProcessed(expense.smsId, expense.date, expense.amount)) {
+        skipped += 1;
+        continue;
+      }
+
+      // If native receiver already has this pending, it was already notified in real-time
+      const isAlreadyInNative = nativePending.some(
+        (np) => np.smsId === expense.smsId || (np.date === expense.date && Math.abs(np.amount - expense.amount) < 0.01)
+      );
+      if (isAlreadyInNative) {
+        skipped += 1;
+        continue;
+      }
+
+      // On Android, single source is native SmsBroadcastReceiver at transaction arrival time.
+      // Do not schedule duplicate local notifications when the app is launched.
+      if (Platform.OS === "android") {
         skipped += 1;
         continue;
       }

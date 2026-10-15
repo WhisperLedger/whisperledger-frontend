@@ -21,6 +21,11 @@ export interface ParsedSMS {
   smsId: string;
 }
 
+export function getCanonicalTxnKey(date: string, amount: number): string {
+  const paise = Math.round(amount * 100);
+  return `txn_${date}_${paise}`;
+}
+
 export function isSmsAutoSyncAvailable(): boolean {
   return Platform.OS === "android" && !!SmsAndroid?.list;
 }
@@ -251,17 +256,17 @@ function parseMessages(messages: any[]): ParsedSMS[] {
     else if (/card|debit card|credit card|pos/i.test(text)) paymentMode = "card";
     else if (/cash/i.test(text)) paymentMode = "cash";
 
-    const dateObj = new Date(Number(msg?.date || Date.now()));
+    const rawDateNum = Number(msg?.date || Date.now());
+    const dateObj = new Date(rawDateNum);
     if (Number.isNaN(dateObj.getTime())) continue;
     const isoDate = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, "0")}-${String(dateObj.getDate()).padStart(2, "0")}`;
+    const paise = Math.round(amount * 100);
+    const canonicalKey = `txn_${isoDate}_${paise}`;
+    const smsId = msg?.date ? `sms_${msg.date}_${paise}` : canonicalKey;
 
-    const smsId =
-      msg?._id != null
-        ? String(msg._id)
-        : `sms_${amount}_${isoDate}_${merchant.replace(/\s+/g, "")}`;
-
-    if (seen.has(smsId)) continue;
+    if (seen.has(smsId) || seen.has(canonicalKey)) continue;
     seen.add(smsId);
+    seen.add(canonicalKey);
 
     results.push({
       amount,
