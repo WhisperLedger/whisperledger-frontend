@@ -92,9 +92,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (runtimeConfig.dataBackend === "api") {
       api.getMe()
-        .then((res) => {
-          const apiUser = res.data?.user || (res.data?.id ? res.data : null);
-          if (res.success && apiUser) {
+        .then(async (res) => {
+          let apiUser = res.data?.user || (res.data?.id ? res.data : null);
+          if (!apiUser) {
+            const cachedStr = await AsyncStorage.getItem("@last_active_user_session");
+            if (cachedStr) {
+              try {
+                const parsed = JSON.parse(cachedStr);
+                if (parsed?.email) {
+                  const syncRes = await api.syncSession(parsed.email, parsed.name, parsed.avatarUri);
+                  if (syncRes.success && syncRes.data?.user) {
+                    apiUser = syncRes.data.user;
+                  }
+                }
+              } catch {}
+            }
+          }
+          if (apiUser) {
             const isPro = apiUser.plan === "pro";
             const updatedUser: User = {
               uid: apiUser.id,
@@ -110,8 +124,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             AsyncStorage.setItem("@last_active_user_session", JSON.stringify(updatedUser)).catch(() => null);
           }
         })
-        .catch((err) => {
-          console.warn("⚠️ API getMe boot check failed:", err);
+        .catch(async (err) => {
+          console.warn("⚠️ API getMe boot check failed, attempting session sync:", err);
+          try {
+            const cachedStr = await AsyncStorage.getItem("@last_active_user_session");
+            if (cachedStr) {
+              const parsed = JSON.parse(cachedStr);
+              if (parsed?.email) {
+                const syncRes = await api.syncSession(parsed.email, parsed.name, parsed.avatarUri);
+                if (syncRes.success && syncRes.data?.user) {
+                  const apiUser = syncRes.data.user;
+                  const isPro = apiUser.plan === "pro";
+                  const updatedUser: User = {
+                    uid: apiUser.id,
+                    name: apiUser.full_name || "User",
+                    email: apiUser.email || "",
+                    avatarUri: apiUser.avatar_url || undefined,
+                    username: apiUser.email?.split("@")[0] || "user",
+                    plan: apiUser.plan || "starter_free",
+                    isPro: isPro,
+                    role: apiUser.role || "user",
+                  };
+                  setUser(updatedUser);
+                  AsyncStorage.setItem("@last_active_user_session", JSON.stringify(updatedUser)).catch(() => null);
+                }
+              }
+            }
+          } catch {}
         })
         .finally(() => {
           setIsAuthReady(true);

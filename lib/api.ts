@@ -121,6 +121,20 @@ class BackendClient {
     return res;
   }
 
+  async syncSession(email: string, fullName?: string, avatarUrl?: string) {
+    const res = await this.request<{ user: ApiCurrentUser; tokens: { access_token: string; refresh_token: string } }>(
+      '/auth/sync-session',
+      {
+        method: 'POST',
+        body: JSON.stringify({ email, full_name: fullName, avatar_url: avatarUrl }),
+      }
+    );
+    if (res.success && res.data?.tokens?.access_token) {
+      await SecureSession.setItem(SECURE_KEYS.AUTH_TOKEN, res.data.tokens.access_token);
+    }
+    return res;
+  }
+
   async getMe() {
     return this.request<ApiCurrentUser & { user?: ApiCurrentUser }>('/auth/me');
   }
