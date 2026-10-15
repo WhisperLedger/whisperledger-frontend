@@ -122,10 +122,16 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       setLoading(false);
     }
 
-    // When connecting to PostgreSQL API backend, fetch entitlements directly from /auth/me
+    // When connecting to PostgreSQL API backend, fetch entitlements directly from /auth/me or sync-session
     if (runtimeConfig.dataBackend === "api") {
       api.getMe().then(async (res) => {
-        const apiUser = res.data?.user || (res.data?.id ? res.data : null);
+        let apiUser = res.data?.user || (res.data?.id ? res.data : null);
+        if (!apiUser && user.email) {
+          const syncRes = await api.syncSession(user.email, user.name, user.avatarUri);
+          if (syncRes.success && syncRes.data?.user) {
+            apiUser = syncRes.data.user;
+          }
+        }
         if (apiUser && (apiUser.plan === "pro" || apiUser.isPro === true)) {
           const proSub: UserSubscription = {
             tier: "pro",
@@ -134,6 +140,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
             expiresAt: null,
           };
           setSub(proSub);
+          setPendingProRequest(false);
+          setPendingProPlan(null);
           await cacheSubscription(user.uid, proSub);
         } else if (apiUser) {
           const freeSub: UserSubscription = {
@@ -145,8 +153,28 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           setSub(freeSub);
           await cacheSubscription(user.uid, freeSub);
         }
-      }).catch((err) => {
+      }).catch(async (err) => {
         console.warn("[Subscription] API getMe subscription check fallback:", err);
+        if (user.email) {
+          try {
+            const syncRes = await api.syncSession(user.email, user.name, user.avatarUri);
+            if (syncRes.success && syncRes.data?.user) {
+              const apiUser = syncRes.data.user;
+              if (apiUser.plan === "pro" || apiUser.isPro === true) {
+                const proSub: UserSubscription = {
+                  tier: "pro",
+                  plan: "yearly",
+                  status: "active",
+                  expiresAt: null,
+                };
+                setSub(proSub);
+                setPendingProRequest(false);
+                setPendingProPlan(null);
+                await cacheSubscription(user.uid, proSub);
+              }
+            }
+          } catch {}
+        }
       }).finally(() => {
         setLoading(false);
       });
@@ -237,9 +265,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     return () => unsubRequests();
   }, [user]);
 
-  const isPro = hasActiveProAccess(sub);
+  const isPro = hasActiveProAccess(sub) || user?.isPro === true || user?.plan === "pro";
   const isLifetime = !!sub.isLifetime;
   const trialUsed = !!sub.trialUsed;
+  const effectivePendingProRequest = !isPro && pendingProRequest;
+  const effectivePendingProPlan = isPro ? null : pendingProPlan;
 
   useEffect(() => {
     if (isPro && paywallVisible) {
@@ -340,8 +370,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   return (
     <SubscriptionContext.Provider
       value={{
-        tier: sub.tier,
-        plan: sub.plan,
+        tier: isPro ? "pro" : sub.tier,
+        plan: isPro && sub.plan === "free" ? "yearly" : sub.plan,
         isPro,
         isLifetime,
         trialUsed,
@@ -349,8 +379,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         planConfig,
         paywallVisible,
         paywallFeature,
-        pendingProRequest,
-        pendingProPlan,
+        pendingProRequest: effectivePendingProRequest,
+        pendingProPlan: effectivePendingProPlan,
         openPaywall,
         closePaywall,
         requirePro,
