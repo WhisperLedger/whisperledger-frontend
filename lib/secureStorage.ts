@@ -52,5 +52,6 @@ export const SecureSession = {
 export const SECURE_KEYS = {
   USER_SESSION: "@secure_user_session",
   AUTH_TOKEN: "@secure_auth_token",
+  REFRESH_TOKEN: "@secure_refresh_token",
   FIREBASE_REFRESH: "@secure_firebase_refresh",
 } as const;

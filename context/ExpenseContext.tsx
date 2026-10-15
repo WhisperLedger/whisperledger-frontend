@@ -328,6 +328,34 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
       };
     });
 
+    if (runtimeConfig.dataBackend === "api") {
+      const previous = expenses;
+      setExpenses((current) => [...preparedItems, ...current]);
+      try {
+        const responses = await Promise.all(preparedItems.map((item) => api.createExpense({
+          amount: item.amount,
+          category: item.categoryId,
+          merchant: item.merchant || item.note || "Expense",
+          outflow_type: item.householdId ? "shared_household" : "true_personal",
+          payment_method: item.paymentMode || "UPI",
+          note: item.note,
+          date: item.date ? new Date(item.date).toISOString() : undefined,
+          household_id: item.householdId,
+        })));
+        if (responses.some((response) => !response.success || !response.data?.id)) {
+          throw new Error("One or more expenses could not be saved");
+        }
+        const ids = responses.map((response) => response.data!.id);
+        const saved = preparedItems.map((item, index) => ({ ...item, id: ids[index] }));
+        setExpenses((current) => [...saved, ...current.filter((item) => !preparedItems.some((draft) => draft.id === item.id))]);
+        await AsyncStorage.setItem(`@expenses_${user.uid}`, JSON.stringify([...saved, ...previous]));
+      } catch (error) {
+        setExpenses(previous);
+        throw error;
+      }
+      return;
+    }
+
     // Optimistic UI Update
     setExpenses((prev) => [...preparedItems, ...prev]);
 
@@ -385,9 +413,12 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
           const list = JSON.parse(cached) as Expense[];
           await AsyncStorage.setItem(`@expenses_${user.uid}`, JSON.stringify(list.filter(e => e.id !== id)));
         }
-        await api.request(`/expenses/${id}`, { method: "DELETE" });
+        const res = await api.deleteExpense(id);
+        if (!res.success) throw new Error(res.error?.message || "Could not delete this expense");
       } catch (e) {
         console.error("API delete expense error:", e);
+		setExpenses((prev) => [previousExpense, ...prev]);
+		throw e;
       }
       return;
     }
@@ -449,8 +480,22 @@ export function ExpenseProvider({ children }: { children: React.ReactNode }) {
           const updatedList = list.map(e => e.id === id ? { ...e, ...updates } : e);
           await AsyncStorage.setItem(`@expenses_${user.uid}`, JSON.stringify(updatedList));
         }
+		const current = { ...previousExpense, ...updates };
+		const res = await api.updateExpense(id, {
+		  amount: current.amount,
+		  category: current.categoryId,
+		  merchant: current.merchant || current.note || "Expense",
+		  outflow_type: current.householdId ? "shared_household" : "true_personal",
+		  payment_method: current.paymentMode || "UPI",
+		  note: current.note,
+		  date: current.date ? new Date(current.date).toISOString() : undefined,
+		  household_id: current.householdId,
+		});
+		if (!res.success) throw new Error(res.error?.message || "Could not update this expense");
       } catch (e) {
         console.error("Local storage update failed:", e);
+		setExpenses((prev) => prev.map((expense) => expense.id === id ? previousExpense : expense));
+		throw e;
       }
       return;
     }

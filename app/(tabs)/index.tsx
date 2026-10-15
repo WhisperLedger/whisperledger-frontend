@@ -1,7 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { safeHaptics } from "@/utils/haptics";
-import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -33,7 +32,9 @@ import { useSubscription } from "@/context/SubscriptionContext";
 import { DebtSummary, HouseholdExpense } from "@/types/household";
 import { useColors } from "@/hooks/useColors";
 import { db } from "@/lib/firebase";
-import { appGradients, bottomInset, iconSurface, isDarkPalette, surfaceStyle } from "@/utils/designSystem";
+import { bottomInset, iconSurface, isDarkPalette, surfaceStyle } from "@/utils/designSystem";
+import { runtimeConfig } from "@/config/runtime";
+import { syncNativePendingApprovals } from "@/utils/smsSync";
 
 function todayISO() {
   const d = new Date();
@@ -86,6 +87,7 @@ export default function HomeScreen() {
   const [showHouseholdManage, setShowHouseholdManage] = useState(false);
   const [editExpense, setEditExpense] = useState<any | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingSmsCount, setPendingSmsCount] = useState(0);
 
   const today = todayISO();
   const weekDates = getWeekDates();
@@ -105,10 +107,8 @@ export default function HomeScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = bottomInset(insets.bottom);
   const isDark = isDarkPalette(colors);
-  const gradients = appGradients(colors);
-
   useEffect(() => {
-    if (!user) return;
+    if (!user || runtimeConfig.dataBackend === "api") return;
     const q = query(collection(db, `users/${user.uid}/notifications`), where("read", "==", false));
     const unsub = onSnapshot(q, {
       next: (snap) => {
@@ -124,6 +124,14 @@ export default function HomeScreen() {
     });
     return unsub;
   }, [user]);
+
+  useEffect(() => {
+    let active = true;
+    syncNativePendingApprovals()
+      .then((items) => { if (active) setPendingSmsCount(items.length); })
+      .catch(() => { if (active) setPendingSmsCount(0); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date)) {
@@ -339,16 +347,26 @@ export default function HomeScreen() {
       shadowRadius: 10,
       elevation: 6,
     },
+    reviewCard: {
+      ...surfaceStyle(colors, false),
+      marginHorizontal: 16,
+      marginTop: 12,
+      padding: 14,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+    reviewTitle: { color: colors.foreground, fontFamily: "Inter_600SemiBold", fontSize: 14 },
+    reviewMeta: { color: colors.mutedForeground, fontFamily: "Inter_400Regular", fontSize: 12, marginTop: 2 },
+    reviewAction: { color: colors.primary, fontFamily: "Inter_700Bold", fontSize: 12 },
   });
 
   const firstName = user?.name?.split(" ")[0] || "there";
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={gradients.hero}
-        style={styles.gradHeader}
-      >
+      <View style={styles.gradHeader}>
         <View style={styles.greetRow}>
           <View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -412,10 +430,29 @@ export default function HomeScreen() {
             </View>
           </View>
         )}
-      </LinearGradient>
+      </View>
 
       {activeSpace === "personal" ? (
         <>
+          {pendingSmsCount > 0 && (
+            <TouchableOpacity
+              style={styles.reviewCard}
+              onPress={() => router.push("/notifications")}
+              accessibilityRole="button"
+              accessibilityLabel={`Review ${pendingSmsCount} pending SMS captures`}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+                <View style={[styles.emptyIcon, { width: 38, height: 38, borderRadius: 12, marginBottom: 0 }]}>
+                  <Feather name="inbox" size={18} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.reviewTitle}>{pendingSmsCount} transaction{pendingSmsCount === 1 ? "" : "s"} to review</Text>
+                  <Text style={styles.reviewMeta}>Nothing is added until you approve it.</Text>
+                </View>
+              </View>
+              <Text style={styles.reviewAction}>Review</Text>
+            </TouchableOpacity>
+          )}
           {/* Money Recovery Hero Card */}
           <ReceivablesSummaryCard onOpenAdd={() => setShowAddReceivable(true)} />
 
@@ -725,20 +762,9 @@ export default function HomeScreen() {
         accessibilityLabel={activeSpace === "household" ? "Add a household expense" : "Add a personal expense"}
         accessibilityHint="Opens the expense form"
       >
-        <LinearGradient
-          colors={gradients.action}
-          style={{
-            width: "100%",
-            height: "100%",
-            borderRadius: 28,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
+        <View style={{ width: "100%", height: "100%", alignItems: "center", justifyContent: "center" }}>
           <Feather name="plus" size={28} color="#fff" />
-        </LinearGradient>
+        </View>
       </TouchableOpacity>
 
       <AddExpenseModal

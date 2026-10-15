@@ -73,7 +73,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Initial boot cache restore
-    AsyncStorage.getItem("@last_active_user_session")
+    // Only Firebase uses a cached display profile during boot. API mode must
+    // validate its bearer token before rendering an authenticated session.
+    const restoreCache = runtimeConfig.dataBackend !== "api"
+      ? AsyncStorage.getItem("@last_active_user_session")
+      : Promise.resolve(null);
+    restoreCache
       .then((cachedStr) => {
         if (cachedStr) {
           try {
@@ -93,21 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (runtimeConfig.dataBackend === "api") {
       api.getMe()
         .then(async (res) => {
-          let apiUser = res.data?.user || (res.data?.id ? res.data : null);
-          if (!apiUser) {
-            const cachedStr = await AsyncStorage.getItem("@last_active_user_session");
-            if (cachedStr) {
-              try {
-                const parsed = JSON.parse(cachedStr);
-                if (parsed?.email) {
-                  const syncRes = await api.syncSession(parsed.email, parsed.name, parsed.avatarUri);
-                  if (syncRes.success && syncRes.data?.user) {
-                    apiUser = syncRes.data.user;
-                  }
-                }
-              } catch {}
-            }
-          }
+          const apiUser = res.data?.user || (res.data?.id ? res.data : null);
           if (apiUser) {
             const isPro = apiUser.plan === "pro";
             const updatedUser: User = {
@@ -124,33 +115,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             AsyncStorage.setItem("@last_active_user_session", JSON.stringify(updatedUser)).catch(() => null);
           }
         })
-        .catch(async (err) => {
-          console.warn("⚠️ API getMe boot check failed, attempting session sync:", err);
-          try {
-            const cachedStr = await AsyncStorage.getItem("@last_active_user_session");
-            if (cachedStr) {
-              const parsed = JSON.parse(cachedStr);
-              if (parsed?.email) {
-                const syncRes = await api.syncSession(parsed.email, parsed.name, parsed.avatarUri);
-                if (syncRes.success && syncRes.data?.user) {
-                  const apiUser = syncRes.data.user;
-                  const isPro = apiUser.plan === "pro";
-                  const updatedUser: User = {
-                    uid: apiUser.id,
-                    name: apiUser.full_name || "User",
-                    email: apiUser.email || "",
-                    avatarUri: apiUser.avatar_url || undefined,
-                    username: apiUser.email?.split("@")[0] || "user",
-                    plan: apiUser.plan || "starter_free",
-                    isPro: isPro,
-                    role: apiUser.role || "user",
-                  };
-                  setUser(updatedUser);
-                  AsyncStorage.setItem("@last_active_user_session", JSON.stringify(updatedUser)).catch(() => null);
-                }
-              }
-            }
-          } catch {}
+	    .catch(async () => {
+	      // A cached display profile is not proof of identity. Never recreate a
+	      // server session from it; require a normal sign-in instead.
+	      setUser(null);
+	      await AsyncStorage.removeItem("@last_active_user_session").catch(() => null);
         })
         .finally(() => {
           setIsAuthReady(true);
@@ -493,6 +462,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     if (runtimeConfig.dataBackend === "api") {
       await SecureSession.removeItem(SECURE_KEYS.AUTH_TOKEN);
+	  await SecureSession.removeItem(SECURE_KEYS.REFRESH_TOKEN);
       setUser(null);
       setIsLoading(false);
       await AsyncStorage.removeItem("@last_active_user_session").catch(() => null);
@@ -522,16 +492,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
     
     if (runtimeConfig.dataBackend === "api") {
+      const nextUser = { ...user, ...updates };
       setUser((prev) => (prev ? { ...prev, ...updates } : null));
       try {
+        const response = await api.updateProfile(updates.name, updates.avatarUri);
+        if (!response.success) {
+          throw new Error(response.error?.message || "Could not update profile");
+        }
         const cachedKey = `@user_profile_${user.uid}`;
         const cached = await AsyncStorage.getItem(cachedKey);
         const currentProfile = cached ? JSON.parse(cached) : {};
         const merged = { ...currentProfile, ...updates };
         await AsyncStorage.setItem(cachedKey, JSON.stringify(merged));
-        await AsyncStorage.setItem("@last_active_user_session", JSON.stringify({ ...user, ...updates }));
+        await AsyncStorage.setItem("@last_active_user_session", JSON.stringify(nextUser));
       } catch (err) {
         console.error("Local storage user save failed:", err);
+		setUser(user);
+		throw err;
       }
       return;
     }

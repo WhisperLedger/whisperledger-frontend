@@ -103,6 +103,7 @@ class BackendClient {
     );
     if (res.success && res.data?.tokens?.access_token) {
       await SecureSession.setItem(SECURE_KEYS.AUTH_TOKEN, res.data.tokens.access_token);
+	      await SecureSession.setItem(SECURE_KEYS.REFRESH_TOKEN, res.data.tokens.refresh_token);
     }
     return res;
   }
@@ -117,20 +118,7 @@ class BackendClient {
     );
     if (res.success && res.data?.tokens?.access_token) {
       await SecureSession.setItem(SECURE_KEYS.AUTH_TOKEN, res.data.tokens.access_token);
-    }
-    return res;
-  }
-
-  async syncSession(email: string, fullName?: string, avatarUrl?: string) {
-    const res = await this.request<{ user: ApiCurrentUser; tokens: { access_token: string; refresh_token: string } }>(
-      '/auth/sync-session',
-      {
-        method: 'POST',
-        body: JSON.stringify({ email, full_name: fullName, avatar_url: avatarUrl }),
-      }
-    );
-    if (res.success && res.data?.tokens?.access_token) {
-      await SecureSession.setItem(SECURE_KEYS.AUTH_TOKEN, res.data.tokens.access_token);
+	      await SecureSession.setItem(SECURE_KEYS.REFRESH_TOKEN, res.data.tokens.refresh_token);
     }
     return res;
   }
@@ -139,10 +127,24 @@ class BackendClient {
     return this.request<ApiCurrentUser & { user?: ApiCurrentUser }>('/auth/me');
   }
 
+  async updateProfile(fullName?: string, avatarUrl?: string) {
+    return this.request<ApiCurrentUser>("/auth/me", {
+      method: "PUT",
+      body: JSON.stringify({ full_name: fullName, avatar_url: avatarUrl }),
+    });
+  }
+
   async updatePushToken(pushToken: string) {
     return this.request('/auth/push-token', {
       method: 'PUT',
       body: JSON.stringify({ push_token: pushToken }),
+    });
+  }
+
+  async createSupportCase(subject: string, message: string) {
+    return this.request<{ id: string; status: string }>("/users/support-cases", {
+      method: "POST",
+      body: JSON.stringify({ subject, message }),
     });
   }
 
@@ -162,6 +164,26 @@ class BackendClient {
       method: 'POST',
       body: JSON.stringify(expense),
     });
+  }
+
+  async updateExpense(id: string, expense: {
+    amount: number;
+    category: string;
+    merchant: string;
+    outflow_type: 'true_personal' | 'shared_household' | 'recoverable';
+    payment_method?: string;
+    note?: string;
+    date?: string;
+    household_id?: string;
+  }) {
+    return this.request<{ id: string }>(`/expenses/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(expense),
+    });
+  }
+
+  async deleteExpense(id: string) {
+    return this.request(`/expenses/${id}`, { method: 'DELETE' });
   }
 
   async listExpenses(params?: { limit?: number; offset?: number; outflow_type?: string }) {

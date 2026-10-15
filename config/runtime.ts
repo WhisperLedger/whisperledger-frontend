@@ -6,7 +6,9 @@
 export type DataBackend = "firebase" | "api";
 
 function readBackend(): DataBackend {
-  const value = process.env.EXPO_PUBLIC_DATA_BACKEND || "firebase";
+  // Firebase was a migration source, not a safe production fallback. A build
+  // without an explicit setting is therefore treated as API-backed.
+  const value = process.env.EXPO_PUBLIC_DATA_BACKEND || "api";
   if (value === "firebase" || value === "api") return value;
   throw new Error("EXPO_PUBLIC_DATA_BACKEND must be either 'firebase' or 'api'.");
 }

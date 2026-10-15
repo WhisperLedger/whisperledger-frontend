@@ -20,6 +20,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useColors } from "@/hooks/useColors";
 import { db } from "@/lib/firebase";
 import { safeHaptics } from "@/utils/haptics";
+import { api } from "@/lib/api";
+import { runtimeConfig } from "@/config/runtime";
 
 interface SupportModalProps {
   visible: boolean;
@@ -54,15 +56,20 @@ export default function SupportModal({
     safeHaptics.impactAsync();
     setSending(true);
     try {
-      await addDoc(collection(db, "support_cases"), {
-        userId: user.uid,
-        userEmail: user.email || "",
-        userName: user.name || "Valued User",
-        subject: subject.trim(),
-        message: message.trim(),
-        status: "received",
-        createdAt: serverTimestamp(),
-      });
+      if (runtimeConfig.dataBackend === "api") {
+        const response = await api.createSupportCase(subject.trim(), message.trim());
+        if (!response.success) throw new Error(response.error?.message || "Unable to submit your request");
+      } else {
+        await addDoc(collection(db, "support_cases"), {
+          userId: user.uid,
+          userEmail: user.email || "",
+          userName: user.name || "Valued User",
+          subject: subject.trim(),
+          message: message.trim(),
+          status: "received",
+          createdAt: serverTimestamp(),
+        });
+      }
 
       safeHaptics.notificationAsync();
       setSubmitted(true);

@@ -1,6 +1,8 @@
 import { collection, doc, getDocs, limit, query, setDoc, where } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
+import { api } from "@/lib/api";
+import { runtimeConfig } from "@/config/runtime";
 import type { SMSApprovalPayload } from "@/utils/notifications";
 
 /**
@@ -11,6 +13,19 @@ import type { SMSApprovalPayload } from "@/utils/notifications";
 export async function saveSmsExpense(userId: string, transaction: SMSApprovalPayload): Promise<boolean> {
   if (!userId || !transaction.smsId || !Number.isFinite(transaction.amount) || transaction.amount <= 0) {
     return false;
+  }
+
+  if (runtimeConfig.dataBackend === "api") {
+    const response = await api.createExpense({
+      amount: transaction.amount,
+      category: transaction.categoryId || "other",
+      merchant: transaction.merchant || "Unknown Merchant",
+      outflow_type: "true_personal",
+      payment_method: transaction.paymentMode || "UPI",
+      note: transaction.note || `Captured from SMS: ${transaction.merchant || "Transaction"}`,
+      date: transaction.date ? new Date(transaction.date).toISOString() : undefined,
+    });
+    return response.success;
   }
 
   const existing = await getDocs(
