@@ -48,6 +48,7 @@ import { markSmsIgnored, registerSMSBackgroundSync } from "@/utils/smsSync";
 import { saveSmsExpense } from "@/utils/smsExpense";
 import { collection, doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { runtimeConfig } from "@/config/runtime";
 
 // Crash reporting is opt-in at deploy time. A placeholder DSN creates noisy,
 // unactionable telemetry and must never ship.
@@ -97,6 +98,7 @@ if (Notifications) {
 const queryClient = new QueryClient();
 
 async function markLinkedNotificationRead(userId: string, data: Record<string, any>) {
+	if (runtimeConfig.dataBackend === "api") return;
   if (!data.firestoreNotifId) return;
   await updateDoc(doc(db, `users/${userId}/notifications/${data.firestoreNotifId}`), { read: true }).catch(() => null);
 }
@@ -211,7 +213,7 @@ function RootLayoutNav() {
     if (!Notifications) return;
 
     const receivedSub = Notifications.addNotificationReceivedListener(async (notification: any) => {
-      if (!user) return;
+      if (!user || runtimeConfig.dataBackend === "api") return;
       const data = (notification.request.content.data || {}) as Record<string, any>;
       // Loop-Breaker: Do NOT write mock/local notifications to Firestore!
       if (data.isLocalTriggered) return;
@@ -243,7 +245,7 @@ function RootLayoutNav() {
       const { smsId, amount, merchant, deepLink } = data;
       const isSMSApprovalAction = actionIdentifier === SMSAction.APPROVE || actionIdentifier === SMSAction.DISCARD;
 
-      if (user) {
+      if (user && runtimeConfig.dataBackend !== "api") {
         if (data.isLocalTriggered || data.isCloudTriggered) {
           await markLinkedNotificationRead(user.uid, data);
         } else {

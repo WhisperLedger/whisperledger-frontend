@@ -122,16 +122,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       setLoading(false);
     }
 
-    // When connecting to PostgreSQL API backend, fetch entitlements directly from /auth/me or sync-session
+    // The backend is authoritative for entitlements. A cached profile must
+    // never be used to mint or recover an API session.
     if (runtimeConfig.dataBackend === "api") {
       api.getMe().then(async (res) => {
-        let apiUser = res.data?.user || (res.data?.id ? res.data : null);
-        if (!apiUser && user.email) {
-          const syncRes = await api.syncSession(user.email, user.name, user.avatarUri);
-          if (syncRes.success && syncRes.data?.user) {
-            apiUser = syncRes.data.user;
-          }
-        }
+        const apiUser = res.data?.user || (res.data?.id ? res.data : null);
         if (apiUser && (apiUser.plan === "pro" || apiUser.isPro === true)) {
           const proSub: UserSubscription = {
             tier: "pro",
@@ -153,28 +148,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           setSub(freeSub);
           await cacheSubscription(user.uid, freeSub);
         }
-      }).catch(async (err) => {
+      }).catch((err) => {
         console.warn("[Subscription] API getMe subscription check fallback:", err);
-        if (user.email) {
-          try {
-            const syncRes = await api.syncSession(user.email, user.name, user.avatarUri);
-            if (syncRes.success && syncRes.data?.user) {
-              const apiUser = syncRes.data.user;
-              if (apiUser.plan === "pro" || apiUser.isPro === true) {
-                const proSub: UserSubscription = {
-                  tier: "pro",
-                  plan: "yearly",
-                  status: "active",
-                  expiresAt: null,
-                };
-                setSub(proSub);
-                setPendingProRequest(false);
-                setPendingProPlan(null);
-                await cacheSubscription(user.uid, proSub);
-              }
-            }
-          } catch {}
-        }
       }).finally(() => {
         setLoading(false);
       });

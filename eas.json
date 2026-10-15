@@ -18,6 +18,7 @@
       },
       "env": {
         "EXPO_PUBLIC_DATA_BACKEND": "api",
+		"EXPO_PUBLIC_API_URL": "https://whisperledger-api-dozavowbya-el.a.run.app/api/v1",
         "SENTRY_SKIP_AUTO_RELEASE": "true",
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
@@ -28,6 +29,7 @@
       },
       "env": {
         "EXPO_PUBLIC_DATA_BACKEND": "api",
+		"EXPO_PUBLIC_API_URL": "https://whisperledger-api-dozavowbya-el.a.run.app/api/v1",
         "SENTRY_SKIP_AUTO_RELEASE": "true",
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
