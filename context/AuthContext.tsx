@@ -428,17 +428,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return { success: true };
           }
         } catch (nativeErr: any) {
-          console.warn("⚠️ Native Google Sign-In failed, attempting WebBrowser Session:", nativeErr);
+          console.warn("⚠️ Native Google Sign-In failed:", nativeErr);
+          const errCode = String(nativeErr?.code || "");
+          const errMsg = String(nativeErr?.message || "").toLowerCase();
+          
+          // User deliberately dismissed/cancelled the Google account picker
+          if (errCode === "12501" || errCode === "SIGN_IN_CANCELLED" || errMsg.includes("cancel")) {
+            return { success: false, error: "Sign-in was cancelled." };
+          }
+          
+          // Developer error indicates SHA-1 fingerprint / OAuth client mismatch
+          if (errCode === "10" || errCode === "DEVELOPER_ERROR" || errMsg.includes("developer_error")) {
+            return { 
+              success: false, 
+              error: "Google Sign-In configuration mismatch (Developer Error 10). Ensure the release APK SHA-1 is whitelisted in Firebase Console." 
+            };
+          }
         }
       }
 
-      // Stage 2: Try WebBrowser Google OAuth Session
+      // Stage 2: Browser OAuth Session (uses Firebase Auth handler domain)
       try {
-        const redirectUrl = "whisperledger://oauthredirect";
+        const handlerDomain = "https://whisperledger-94715.firebaseapp.com/__/auth/handler";
         const clientId = "1064792050841-amo41uudlpvmuoou362ijcktfe198hdr.apps.googleusercontent.com";
-        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&response_type=id_token&redirect_uri=${encodeURIComponent(redirectUrl)}&scope=openid%20profile%20email&nonce=${Math.random().toString(36).substring(2)}`;
+        const appRedirect = "whisperledger://oauthredirect";
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&response_type=id_token&redirect_uri=${encodeURIComponent(handlerDomain)}&scope=openid%20profile%20email&state=${encodeURIComponent(appRedirect)}&nonce=${Math.random().toString(36).substring(2)}`;
 
-        const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
+        const result = await WebBrowser.openAuthSessionAsync(authUrl, appRedirect);
         if (result.type === "success" && result.url) {
           const match = result.url.match(/id_token=([^&]+)/);
           if (match && match[1]) {
@@ -452,7 +468,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.warn("⚠️ WebBrowser Google Auth Session failed:", webErr);
       }
 
-      return { success: false, error: "Google sign-in is not available on this device. Please use email and password." };
+      return { success: false, error: "Google sign-in is not available. Please use email and password." };
     } catch (error: any) {
       console.warn("Google Login Error:", error);
       return { success: false, error: error.message || String(error) };

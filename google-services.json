@@ -14,11 +14,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "1064792050841-6o95ku1g0u33rktaltl4ht02q8lqojaq.apps.googleusercontent.com",
+          "client_id": "1064792050841-uoikm98m7srvvosv31qalpt3enldri9g.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.whisperledger.app",
-            "certificate_hash": "535795c7db959df5ec7b5c2f4deef9027c7c8e55"
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
           }
         },
         {
